@@ -27,6 +27,9 @@ pub struct BytecodePhaseExecutor {
     /// Signal types for zero value initialization.
     /// Used to create correct zero values for inputs accumulator.
     signal_types: IndexMap<SignalId, Type>,
+    /// Spatial topologies for entity neighbor queries.
+    /// Frozen in Configure phase, immutable during execution.
+    topologies: crate::topology::TopologyStorage,
 }
 
 impl Default for BytecodePhaseExecutor {
@@ -43,6 +46,7 @@ impl BytecodePhaseExecutor {
             config_values: IndexMap::new(),
             const_values: IndexMap::new(),
             signal_types: IndexMap::new(),
+            topologies: crate::topology::TopologyStorage::new(),
         }
     }
 
@@ -161,6 +165,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                topologies: &self.topologies,
                                 signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
@@ -249,6 +254,7 @@ impl BytecodePhaseExecutor {
                                     cached_inputs: None,
                                     config_values: &self.config_values,
                                     const_values: &self.const_values,
+                                    topologies: &self.topologies,
                                     signal_types: &self.signal_types,
                                     payload: None,
                                     entity_context: Some(entity_ctx),
@@ -353,6 +359,7 @@ impl BytecodePhaseExecutor {
                             cached_inputs: None,
                             config_values: &self.config_values,
                             const_values: &self.const_values,
+                            topologies: &self.topologies,
                             signal_types: &self.signal_types,
                             payload: None,
                             entity_context: None,
@@ -448,6 +455,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                topologies: &self.topologies,
                                 signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
@@ -539,6 +547,7 @@ impl BytecodePhaseExecutor {
                                     cached_inputs: None,
                                     config_values: &self.config_values,
                                     const_values: &self.const_values,
+                                    topologies: &self.topologies,
                                     signal_types: &self.signal_types,
                                     payload: None,
                                     entity_context: Some(entity_ctx),
@@ -667,6 +676,7 @@ impl BytecodePhaseExecutor {
                             cached_inputs: None,
                             config_values: &self.config_values,
                             const_values: &self.const_values,
+                            topologies: &self.topologies,
                             signal_types: &self.signal_types,
                             payload: None,
                             entity_context: None,
@@ -744,6 +754,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                topologies: &self.topologies,
                                 signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
@@ -823,6 +834,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                topologies: &self.topologies,
                                 signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
@@ -916,6 +928,8 @@ pub struct VMContext<'a> {
     pub config_values: &'a IndexMap<Path, Value>,
     /// Global simulation constants loaded from const {} blocks
     pub const_values: &'a IndexMap<Path, Value>,
+    /// Spatial topologies for neighbor queries
+    pub topologies: &'a crate::topology::TopologyStorage,
     /// Signal types for zero value initialization
     pub signal_types: &'a IndexMap<SignalId, Type>,
     /// Current impulse payload (only valid when executing impulse collect blocks)
@@ -1246,12 +1260,53 @@ impl<'a> ExecutionContext for VMContext<'a> {
 
     fn find_neighbors(
         &self,
-        _entity: &continuum_foundation::EntityId,
-        _instance: Value,
+        entity: &continuum_foundation::EntityId,
+        instance: Value,
     ) -> std::result::Result<Vec<Value>, ExecutionError> {
-        // TODO: Implement actual topology lookup
-        // For now, return empty sequence
-        Ok(vec![])
+        // Get topology for this entity
+        let topology =
+            self.topologies
+                .get(entity)
+                .ok_or_else(|| ExecutionError::InvalidOperand {
+                    message: format!("Entity {} has no topology defined", entity),
+                })?;
+
+        // Extract entity index from instance value
+        // Instance is a map with an implicit index field
+        let instance_map = instance
+            .as_map()
+            .ok_or_else(|| ExecutionError::TypeMismatch {
+                expected: "Map (entity instance)".to_string(),
+                found: format!("{:?}", instance),
+            })?;
+
+        // TODO: Need a standard way to get instance index
+        // For now, assume instances have an "__index" field
+        let index = instance_map
+            .iter()
+            .find(|(k, _)| k == &"__index")
+            .and_then(|(_, v)| v.as_scalar())
+            .ok_or_else(|| ExecutionError::InvalidOperand {
+                message: "Instance missing __index field".to_string(),
+            })?;
+
+        let entity_idx = crate::EntityIndex(index as usize);
+
+        // Get neighbors from topology
+        let neighbor_indices = topology.neighbors(entity_idx);
+
+        // Convert neighbor indices to instance values
+        // For now, return placeholder values with just index
+        // TODO: Need to fetch actual instance data from EntityStorage
+        let neighbors: Vec<Value> = neighbor_indices
+            .iter()
+            .map(|idx| {
+                let fields = vec![("__index".to_string(), Value::Scalar(idx.0 as f64))];
+                Value::Map(std::sync::Arc::new(fields))
+            })
+            .collect();
+
+        Ok(neighbors)
     }
 
     fn emit_signal(

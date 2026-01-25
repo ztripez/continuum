@@ -27,6 +27,9 @@ pub mod icosahedron;
 pub use icosahedron::IcosahedralTopology;
 
 use crate::EntityIndex;
+use continuum_foundation::EntityId;
+use indexmap::IndexMap;
+use std::sync::Arc;
 
 /// Spatial topology trait - provides neighbor query interface.
 ///
@@ -45,5 +48,42 @@ pub trait SpatialTopology: Send + Sync {
     /// Validate that an entity index is within bounds.
     fn is_valid_index(&self, entity: EntityIndex) -> bool {
         entity.0 < self.entity_count()
+    }
+}
+
+/// Storage for entity topologies.
+///
+/// Maps entity types to their spatial topology structure.
+/// Frozen in Configure phase and immutable during execution.
+#[derive(Clone, Default)]
+pub struct TopologyStorage {
+    topologies: IndexMap<EntityId, Arc<dyn SpatialTopology>>,
+}
+
+impl TopologyStorage {
+    /// Create a new empty topology storage.
+    pub fn new() -> Self {
+        Self {
+            topologies: IndexMap::new(),
+        }
+    }
+
+    /// Register a topology for an entity type.
+    ///
+    /// Should only be called during Configure phase.
+    pub fn register(&mut self, entity: EntityId, topology: Arc<dyn SpatialTopology>) {
+        self.topologies.insert(entity, topology);
+    }
+
+    /// Get the topology for an entity type.
+    ///
+    /// Returns None if entity has no topology defined.
+    pub fn get(&self, entity: &EntityId) -> Option<&Arc<dyn SpatialTopology>> {
+        self.topologies.get(entity)
+    }
+
+    /// Check if an entity has a topology defined.
+    pub fn has_topology(&self, entity: &EntityId) -> bool {
+        self.topologies.contains_key(entity)
     }
 }
