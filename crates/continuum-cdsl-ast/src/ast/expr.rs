@@ -4,6 +4,25 @@
 //! Every expression carries its type, making type errors compile errors rather than
 //! runtime errors.
 //!
+//! # Pipeline Stage: Semantic IR (Canonical Representation)
+//!
+//! **This is the canonical semantic IR.** [`TypedExpr`] and [`ExprKind`] are the
+//! authoritative representation of expressions used by:
+//! - Type checker (produces this from untyped AST)
+//! - Validation passes (consume this)
+//! - DAG builder (schedules this into execution graph)
+//! - Runtime (never - uses bytecode compiled from this)
+//!
+//! **What happened to Binary/Unary/If?**  
+//! The untyped AST ([`UntypedExpr`](super::untyped::Expr)) contains syntax-only
+//! variants that **desugar** during type resolution:
+//! - `Binary(Add, a, b)` → `Call { kernel: maths.add, args: [a,b] }`
+//! - `If(c, t, e)` → `Call { kernel: logic.select, args: [c,t,e] }`
+//!
+//! This IR contains **only semantic constructs**, not syntactic sugar.
+//!
+//! See `docs/execution/ir.md` for the full compilation pipeline.
+//!
 //! # Architecture
 //!
 //! The expression system is built on three core types:

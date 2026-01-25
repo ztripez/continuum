@@ -4,6 +4,24 @@
 //! These are then type-checked and transformed into the typed AST ([`TypedExpr`])
 //! by the type resolution pass.
 //!
+//! # Pipeline Stage: Syntax (Boundary Adapter)
+//!
+//! **This is NOT the canonical IR.** This is parser output - a boundary adapter
+//! at the parser→compiler interface. The canonical semantic representation is
+//! [`TypedExpr`](super::TypedExpr) in `expr.rs`.
+//!
+//! **Key differences from typed IR:**
+//! - Contains syntax-only variants: [`Binary`](ExprKind::Binary),
+//!   [`Unary`](ExprKind::Unary), [`If`](ExprKind::If), [`ParseError`](ExprKind::ParseError)
+//! - Uses syntactic types: `UnitExpr` (not `Unit`), `Path` (not resolved IDs)
+//! - Preserves source structure for error reporting
+//!
+//! These syntax-only variants are **desugared** during type resolution:
+//! - `a + b` (Binary) → `maths.add(a, b)` (Call)
+//! - `if c { t } else { e }` (If) → `logic.select(c, t, e)` (Call)
+//!
+//! See `docs/execution/ir.md` for the full compilation pipeline.
+//!
 //! # Design Principles
 //!
 //! ## Parser Simplicity
