@@ -708,32 +708,36 @@ impulse stellar.impact {
 
     collect {
         # Compute impact energy: KE = 0.5 * m * v²
+        # TODO: CDSL syntax limitation - if-blocks are expressions, cannot contain statements
+        # Need to refactor this logic into conditional signal emissions or separate fracture
+        # For now, apply effects unconditionally for significant impacts
+        
         let energy_j = 0.5 * payload.impactor_mass * payload.velocity * payload.velocity
+        
+        # Partition energy into crust, mantle, and ejecta
+        let crust_energy = energy_j * config.stellar.impact.crust_partition
+        let mantle_energy = energy_j * config.stellar.impact.mantle_partition
 
-        if energy_j > config.stellar.impact.min_significant_energy_j {
-            # Partition energy into crust, mantle, and ejecta
-            let crust_energy = energy_j * config.stellar.impact.crust_partition
-            let mantle_energy = energy_j * config.stellar.impact.mantle_partition
+        # Heat deposition into geophysics thermal budget
+        mantle.heat_content <- mantle_energy
+        surface.temp <- crust_energy / 1.0e20  # Normalize to temperature increment
 
-            # Heat deposition into geophysics thermal budget
-            mantle.heat_content <- mantle_energy
-            surface.temp <- crust_energy / 1.0e20  # Normalize to temperature increment
+        # Crustal thickening from ejecta/melt redistribution
+        # Physics: crater volume ∝ energy, thickness ∝ volume^(1/3)
+        # Use normalized energy (dimensionless) to compute thickness
+        let energy_normalized = energy_j / 1e24
+        let ejecta_thickness = maths.pow(energy_normalized, 1/3) * config.stellar.impact.ejecta_thickness_factor
+        crust.thickness <- ejecta_thickness
 
-            # Crustal thickening from ejecta/melt redistribution
-            # Physics: ejecta volume ∝ energy^(1/3) (crater scaling law)
-            let ejecta_thickness = maths.pow(energy_j, 1/3) * config.stellar.impact.ejecta_thickness_factor
-            crust.thickness <- ejecta_thickness
+        # Large impacts can trigger volcanic activity
+        tectonics.volcanism <- energy_j / 1.0e24
 
-            # Large impacts can trigger volcanic activity
-            tectonics.volcanism <- energy_j / 1.0e24
-
-            # Very large impacts can alter rotation (angular momentum transfer)
-            # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
-            let angular_momentum = payload.impactor_mass * payload.velocity * planet.radius
-            let moment_of_inertia = planet.mass * planet.radius * planet.radius
-            let delta_omega = angular_momentum / moment_of_inertia * config.stellar.impact.rotation_coupling_factor
-            rotation.state <- vector.vec2(0.0, delta_omega)
-        }
+        # Very large impacts can alter rotation (angular momentum transfer)
+        # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
+        let angular_momentum = payload.impactor_mass * payload.velocity * planet.radius
+        let moment_of_inertia = planet.mass * planet.radius * planet.radius
+        let delta_omega = angular_momentum / moment_of_inertia * config.stellar.impact.rotation_coupling_factor
+        rotation.state <- vector.vec2(0.0, delta_omega)
     }
 }
 

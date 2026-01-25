@@ -728,9 +728,11 @@ fracture hydrology.sediment_transport {
 
     collect {
         # Transport capacity: C = K * Q^(3/5) (stream power law)
-        # Physics: sediment transport capacity ∝ discharge^(3/5)
+        # Physics: sediment transport capacity proportional to discharge
+        # Use normalized discharge (dimensionless) to compute capacity
         let discharge = hydrology.runoff_accumulation
-        let capacity = config.hydrology.sediment_transport.capacity_coefficient * maths.pow(discharge, 3/5)
+        let discharge_normalized = discharge / 1e14
+        let capacity = config.hydrology.sediment_transport.capacity_coefficient * maths.pow(discharge_normalized, 3/5)
         let sediment = hydrology.sediment_load
 
         # If sediment exceeds capacity, deposit excess
