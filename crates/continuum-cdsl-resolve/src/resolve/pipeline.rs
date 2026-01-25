@@ -428,6 +428,11 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         validate_integrators(nodes, &registry)
     });
 
+    // Extract :initial() attributes for signal initialization
+    extend_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
+        extract_initial_values(nodes)
+    });
+
     extend_node_pass!(errors, &global_nodes, &member_nodes, |nodes| {
         validate_seq_escape(nodes)
     });
@@ -1552,4 +1557,33 @@ mod config_const_tests {
         assert_eq!(entry.path(), &Path::from_path_str("test"));
         assert!(matches!(entry.type_expr(), TypeExpr::Infer));
     }
+}
+
+/// Extract `:initial(value)` attributes and populate `node.initial` field.
+///
+/// Only applies to Signal nodes. Extracts numeric literal from `:initial()` attribute
+/// and stores it for runtime initialization.
+fn extract_initial_values<I: continuum_cdsl_ast::Index>(
+    nodes: &mut [Node<I>],
+) -> Vec<CompileError> {
+    use crate::resolve::attributes::extract_numeric_literal;
+    use continuum_cdsl_ast::RoleId;
+
+    let mut errors = Vec::new();
+
+    for node in nodes {
+        // Only signals can have initial values
+        if node.role_id() != RoleId::Signal {
+            continue;
+        }
+
+        // Extract :initial() attribute
+        if let Some(value) =
+            extract_numeric_literal(&node.attributes, "initial", node.span, &mut errors)
+        {
+            node.initial = Some(value);
+        }
+    }
+
+    errors
 }

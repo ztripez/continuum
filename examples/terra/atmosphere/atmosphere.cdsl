@@ -111,6 +111,7 @@ fn atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
 signal atmosphere.external_power {
     : Scalar<W, 0..1e20>
     : stratum(atmosphere)
+    : initial(1.22e17)
     : title("External Radiative Power")
     : symbol("P_ext")
 
@@ -236,11 +237,11 @@ signal atmosphere.co2_ppmv {
     : Scalar<ppmv, 100..10000>
     : stratum(atmosphere)
     : uses(maths.clamping)
+    : initial(280.0)
     : title("CO2 Concentration")
     : symbol("CO2")
 
     config {
-        initial: 280.0
         min: 10.0
         max: 10000.0
         # Relaxation timescale for CO2 equilibration (~100 kyr for silicate weathering feedback)
@@ -270,11 +271,11 @@ signal atmosphere.ch4_ppmv {
     : Scalar<ppmv, 0..50>
     : stratum(atmosphere)
     : uses(maths.clamping)
+    : initial(1.8)
     : title("CH4 Concentration")
     : symbol("CH4")
 
     config {
-        initial: 1.8
         min: 0.01
         max: 50.0
         # CH4 has short lifetime (~12 yr), equilibrates fast on geological timescales
@@ -304,11 +305,11 @@ signal atmosphere.cloud_cover {
     : Scalar<1, 0..1>
     : stratum(atmosphere)
     : uses(maths.clamping)
+    : initial(0.5)
     : title("Cloud Cover Fraction")
     : symbol("C")
 
     config {
-        initial: 0.5
         min_water_vapor: 5.0
         saturation_water_vapor: 50.0
     }

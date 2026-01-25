@@ -620,25 +620,9 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
             continue; // Already initialized, skip config check
         }
 
-        // If no literal resolve, check for config.initial value
-        for nested in &node.nested_blocks {
-            if let continuum_cdsl::ast::NestedBlock::Config(entries) = nested {
-                // Look for an entry named "initial"
-                if let Some(initial_entry) = entries.iter().find(|entry| {
-                    entry.path.segments().last().map(|s| s.as_ref()) == Some("initial")
-                }) {
-                    // Extract literal value from the default expression
-                    if let Some(default_expr) = &initial_entry.default {
-                        if let Some(value) = literal_scalar_untyped(default_expr) {
-                            runtime.init_signal(
-                                SignalId::from(path.to_string()),
-                                Value::Scalar(value),
-                            );
-                            break; // Found initial, no need to check other config blocks
-                        }
-                    }
-                }
-            }
+        // If no literal resolve, check for :initial() attribute
+        if let Some(initial_value) = node.initial {
+            runtime.init_signal(SignalId::from(path.to_string()), Value::Scalar(initial_value));
         }
     }
 
@@ -1314,17 +1298,6 @@ fn compile_bytecode_and_dags(
 fn literal_scalar(expr: &TypedExpr) -> Option<f64> {
     match &expr.expr {
         ExprKind::Literal { value, .. } => Some(*value),
-        _ => None,
-    }
-}
-
-/// Extract a literal scalar from an untyped expression.
-///
-/// Used during signal initialization to read `config.initial` values from
-/// signal config blocks.
-fn literal_scalar_untyped(expr: &continuum_cdsl::ast::Expr) -> Option<f64> {
-    match &expr.kind {
-        continuum_cdsl::ast::UntypedKind::Literal { value, .. } => Some(*value),
         _ => None,
     }
 }

@@ -175,6 +175,13 @@ pub struct Node<I: Index = ()> {
     /// Set by attribute resolution from `: integrator(method)`.
     pub integrator: Option<String>,
 
+    /// Initial value for signal initialization
+    ///
+    /// Set by attribute resolution from `:initial(value)`.
+    /// Used by runtime to initialize signals before first Resolve phase.
+    /// Only valid for Signal role.
+    pub initial: Option<f64>,
+
     /// Output type (what this node produces)
     ///
     /// Set by type resolution. None before resolution.
@@ -306,6 +313,7 @@ impl<I: Index> Node<I> {
             executions: Vec::new(),
             stratum: None,
             integrator: None,
+            initial: None,
             output: None,
             inputs: Vec::new(),
             index,

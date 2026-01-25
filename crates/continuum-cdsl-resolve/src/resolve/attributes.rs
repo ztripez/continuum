@@ -718,3 +718,74 @@ mod tests {
         assert!(errors[0].message.contains("must be a topology expression"));
     }
 }
+
+/// Extracts a numeric literal from an attribute with exactly one argument.
+///
+/// Use this for attributes like `:initial(1.5)` that expect a single numeric literal.
+///
+/// # Fail-Hard Behavior
+///
+/// Emits errors for:
+/// - Wrong number of arguments (not exactly 1)
+/// - Non-literal argument types (e.g., expressions, paths)
+/// - Returns `None` only when attribute doesn't exist (legitimate absence)
+///
+/// # Parameters
+///
+/// * `attrs` - Attribute slice to search
+/// * `attr_name` - Name of attribute to extract (e.g., "initial")
+/// * `context_span` - Span for error context (node location)
+/// * `errors` - Error accumulator
+///
+/// # Returns
+///
+/// - `Some(f64)`: Successfully extracted numeric value
+/// - `None`: Attribute not found (not an error) OR error emitted
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let attrs = vec![Attribute {
+///     name: "initial".to_string(),
+///     args: vec![Expr::new(UntypedKind::Literal { value: 1.5, unit: None }, span)],
+///     span,
+/// }];
+/// let value = extract_numeric_literal(&attrs, "initial", span, &mut errors);
+/// assert_eq!(value, Some(1.5));
+/// ```
+pub fn extract_numeric_literal(
+    attrs: &[Attribute],
+    attr_name: &str,
+    context_span: Span,
+    errors: &mut Vec<CompileError>,
+) -> Option<f64> {
+    // Find the attribute
+    let attr = attrs.iter().find(|a| a.name == attr_name)?;
+
+    // Verify exactly 1 argument
+    if attr.args.len() != 1 {
+        errors.push(CompileError::new(
+            ErrorKind::Syntax,
+            context_span,
+            format!(
+                ":{} attribute expects exactly 1 argument, found {}",
+                attr_name,
+                attr.args.len()
+            ),
+        ));
+        return None;
+    }
+
+    // Extract literal value
+    match &attr.args[0].kind {
+        UntypedKind::Literal { value, .. } => Some(*value),
+        _ => {
+            errors.push(CompileError::new(
+                ErrorKind::Syntax,
+                attr.args[0].span,
+                format!(":{} argument must be a numeric literal", attr_name),
+            ));
+            None
+        }
+    }
+}
