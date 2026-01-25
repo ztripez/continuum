@@ -1086,7 +1086,11 @@ entity terra.plate {
         # Default to oceanic (0.0); scenario/worldgen can override
         initial { 0.0 }
     
-        resolve { prev + inputs }
+        resolve { 
+            # Plate type is essentially constant except during major tectonic events
+            # Changes only via fracture events (rifting/collision)
+            prev 
+        }
     }
 
     signal age {
@@ -1134,7 +1138,8 @@ entity terra.plate {
         initial { config.terra.plate.thickness.initial_thickness_m }
     
         resolve {
-            maths.clamp(prev + inputs, 5000.0, 70000.0)
+            # Thickness changes only via fracture events (orogeny, rifting)
+            maths.clamp(prev, 5000.0, 70000.0)
         }
     
         assert {
@@ -1157,7 +1162,8 @@ entity terra.plate {
         initial { config.terra.plate.buoyancy.initial_buoyancy }
     
         resolve {
-            maths.clamp(prev + inputs, 0.0, 1.0)
+            # Buoyancy is intrinsic property, changes only via fracture events
+            maths.clamp(prev, 0.0, 1.0)
         }
     
         assert {
@@ -1176,8 +1182,8 @@ entity terra.plate {
         initial { vector.vec3(0.0, 0.0, 1.0) }
     
         resolve {
-            # Normalize to maintain unit vector
-            vector.normalize(prev + inputs)
+            # Seed direction is fixed after initialization
+            prev
         }
     
         assert {
@@ -1199,8 +1205,9 @@ entity terra.plate {
         initial { vector.vec3(0.0, 0.0, 0.0) }
     
         resolve {
-            # Plate motion derived from mantle flow and inputs impulses
-            config.terra.plate.omega.scale * (prev + inputs)
+            # Plate motion derived from mantle flow
+            # Note: When member emit syntax is implemented, this could receive torque impulses
+            config.terra.plate.omega.scale * prev
         }
     }
 

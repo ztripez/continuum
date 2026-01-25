@@ -959,9 +959,9 @@ entity hydrology.cell {
         initial { config.hydrology.cell.water_mass.initial_water_mass }
     
         resolve {
-            # Water mass changes from precipitation, evaporation, runoff
-            # Net rate integrated over time
-            maths.clamp(prev + inputs, 0.0, 1e6)
+            # Water mass persists (changes would come from spatial flow via neighbors)
+            # For now, maintain current value until spatial operators are implemented
+            prev
         }
     
         assert {
@@ -985,10 +985,10 @@ entity hydrology.cell {
         initial { config.hydrology.cell.temperature.initial_temperature_k }
     
         resolve {
-            # Water temperature relaxes toward surface temperature
+            # Water temperature relaxes toward surface temperature, no external forcing
             let surface_temp = surface.temp in
             let target_temp = maths.clamp(surface_temp, 271.0, 313.0) in
-            dt.relax_to(prev, target_temp, config.hydrology.cell.temperature.relaxation_tau_s) + inputs
+            dt.relax_to(prev, target_temp, config.hydrology.cell.temperature.relaxation_tau_s)
         }
     
         assert {
@@ -1012,8 +1012,9 @@ entity hydrology.cell {
         initial { config.hydrology.cell.sediment_mass.initial_sediment }
     
         resolve {
-            # Sediment mass changes via erosion, transport, and deposition
-            maths.clamp(prev + inputs, 0.0, config.hydrology.cell.sediment_mass.max_sediment)
+            # Sediment persists (changes would come from spatial transport via neighbors)
+            # For now, maintain current value until spatial operators are implemented
+            prev
         }
     
         assert {
