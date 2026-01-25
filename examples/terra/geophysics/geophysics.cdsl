@@ -470,6 +470,7 @@ signal mantle.temp {
 
 signal surface.temp {
     : Scalar<K, 50..500>
+    : initial(288.0)
     : stratum(thermal)
     : title("Surface Temperature")
 
@@ -706,6 +707,7 @@ signal crust.elevation {
 
 signal crust.pressure_base {
     : Scalar<kg/m/s², 1e5..3e9>
+    : initial(1e9)
     : stratum(tectonics)
     : title("Base Crustal Pressure")
 
@@ -728,6 +730,7 @@ signal crust.pressure_base {
 
 signal crust.temp_base {
     : Scalar<K, 300..1500>
+    : initial(1163.0)
     : stratum(thermal)
     : title("Base Crustal Temperature")
 
@@ -1255,6 +1258,7 @@ entity terra.plate {
 # Number of plates (derived from entity count)
 signal plates.count {
     : Scalar<1, 0..64>
+    : initial(12.0)
     : stratum(tectonics)
     : title("Number of Plates")
     : symbol("N_plates")
@@ -1267,6 +1271,7 @@ signal plates.count {
 # Mean plate age
 signal plates.mean_age {
     : Scalar<Myr, 0..5000>
+    : initial(100.0)
     : stratum(tectonics)
     : title("Mean Plate Age")
     : symbol("t_mean")
@@ -1279,6 +1284,7 @@ signal plates.mean_age {
 # Mean plate thickness
 signal plates.mean_thickness {
     : Scalar<m, 5000..70000>
+    : initial(35000.0)
     : stratum(tectonics)
     : title("Mean Plate Thickness")
     : symbol("h_mean")
@@ -1291,6 +1297,7 @@ signal plates.mean_thickness {
 # Oceanic plate count
 signal plates.oceanic_count {
     : Scalar<1, 0..64>
+    : initial(8.0)
     : stratum(tectonics)
     : title("Oceanic Plate Count")
     : symbol("N_oceanic")
@@ -1303,6 +1310,7 @@ signal plates.oceanic_count {
 # Continental plate count
 signal plates.continental_count {
     : Scalar<1, 0..64>
+    : initial(4.0)
     : stratum(tectonics)
     : title("Continental Plate Count")
     : symbol("N_continental")
@@ -1336,6 +1344,7 @@ signal plates.boundary_shear {
 # Mean plate buoyancy
 signal plates.mean_buoyancy {
     : Scalar<1, 0..1>
+    : initial(0.3)
     : stratum(tectonics)
     : title("Mean Plate Buoyancy")
     : symbol("b_mean")
@@ -1348,6 +1357,7 @@ signal plates.mean_buoyancy {
 # Total buoyancy (proxy for continental mass)
 signal plates.total_buoyancy {
     : Scalar<1, 0..64>
+    : initial(3.6)
     : stratum(tectonics)
     : title("Total Plate Buoyancy")
     : symbol("b_sum")
@@ -1360,6 +1370,7 @@ signal plates.total_buoyancy {
 # Maximum plate age (oldest plate)
 signal plates.max_age {
     : Scalar<Myr, 0..5000>
+    : initial(100.0)
     : stratum(tectonics)
     : title("Maximum Plate Age")
     : symbol("t_max")
@@ -1372,6 +1383,7 @@ signal plates.max_age {
 # Minimum plate age (youngest plate)
 signal plates.min_age {
     : Scalar<Myr, 0..5000>
+    : initial(100.0)
     : stratum(tectonics)
     : title("Minimum Plate Age")
     : symbol("t_min")
@@ -1384,6 +1396,7 @@ signal plates.min_age {
 # Total crustal area proxy (sum of thicknesses as volume proxy)
 signal plates.total_thickness {
     : Scalar<m, 0..1000000>
+    : initial(420000.0)
     : stratum(tectonics)
     : title("Total Plate Thickness")
     : symbol("h_sum")
@@ -1401,6 +1414,7 @@ signal plates.total_thickness {
 # Mean plate velocity magnitude
 signal plates.mean_velocity {
     : Scalar<m/s, 0..1>
+    : initial(0.0)
     : stratum(tectonics)
     : title("Mean Plate Velocity")
     : symbol("v_mean")
@@ -1413,6 +1427,7 @@ signal plates.mean_velocity {
 # Maximum plate velocity
 signal plates.max_velocity {
     : Scalar<m/s, 0..1>
+    : initial(0.0)
     : stratum(tectonics)
     : title("Maximum Plate Velocity")
     : symbol("v_max")
@@ -1425,6 +1440,7 @@ signal plates.max_velocity {
 # Minimum plate velocity
 signal plates.min_velocity {
     : Scalar<m/s, 0..0.1>
+    : initial(0.0)
     : stratum(tectonics)
     : title("Minimum Plate Velocity")
     : symbol("v_min")
@@ -1437,6 +1453,7 @@ signal plates.min_velocity {
 # Mean angular velocity magnitude
 signal plates.mean_omega {
     : Scalar<rad/s, 0..1e-8>
+    : initial(0.0)
     : stratum(tectonics)
     : title("Mean Angular Velocity")
     : symbol("omega_mean")
@@ -1539,6 +1556,7 @@ signal plates.transform_activity {
 # Total boundary activity index
 signal plates.total_boundary_activity {
     : Scalar<1, 0..30>
+    : initial(0.0)
     : stratum(tectonics)
     : title("Total Boundary Activity")
     : symbol("A_total")

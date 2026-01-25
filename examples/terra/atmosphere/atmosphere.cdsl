@@ -447,6 +447,7 @@ signal atmosphere.ice_fraction {
 # Effective planetary albedo with ice-albedo feedback
 signal atmosphere.albedo {
     : Scalar<1, 0..1>
+    : initial(0.0)
     : stratum(atmosphere)
     : uses(maths.clamping)
     : title("Effective Planetary Albedo")
@@ -514,6 +515,7 @@ signal atmosphere.solar_constant {
 # Absorbed solar radiation (after albedo reflection)
 signal atmosphere.absorbed_radiation {
     : Scalar<W/m², 0..1e5>
+    : initial(0.0)
     : stratum(atmosphere)
     : title("Absorbed Solar Radiation")
     : symbol("Q_abs")

@@ -598,6 +598,7 @@ entity stellar.moon {
 # TODO: Fix entity member initial value propagation (continuum-wpqp)
 signal stellar.total_insolation {
     : Scalar<W/m², 0..1e6>
+    : initial(1361.0)
     : stratum(orbit)
     : title("Total Stellar Insolation")
     : symbol("F_total")
@@ -616,6 +617,7 @@ signal stellar.total_insolation {
 # Total tidal heating power from all moons
 signal stellar.total_tidal_power {
     : Scalar<W, 0..1e16>
+    : initial(0.0)
     : stratum(tides)
     : title("Total Tidal Heating Power")
     : symbol("P_tidal_total")
@@ -629,6 +631,7 @@ signal stellar.total_tidal_power {
 # Used for field visualization - aggregates tidal force contribution
 signal stellar.total_tidal_amplitude {
     : Scalar<m, 0..1e6>
+    : initial(0.0)
     : stratum(tides)
     : title("Total Tidal Amplitude")
     : symbol("A_tidal_total")
@@ -641,6 +644,7 @@ signal stellar.total_tidal_amplitude {
 # Star count
 signal stellar.star_count {
     : Scalar<1, 0..4>
+    : initial(1.0)
     : stratum(orbit)
     : title("Number of Stars")
     : symbol("N_star")
@@ -653,6 +657,7 @@ signal stellar.star_count {
 # Moon count
 signal stellar.moon_count {
     : Scalar<1, 0..20>
+    : initial(1.0)
     : stratum(orbit)
     : title("Number of Moons")
     : symbol("N_moon")
