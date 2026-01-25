@@ -173,9 +173,8 @@ entity stellar.star {
     
         resolve {
             # Advance phase based on orbital period
-            # Use explicit multiplication for orbit_radius³ because maths.pow doesn't preserve dimensional exponents
             let mu = const.stellar.gravitational_constant * self.mass in
-            let r3 = self.orbit_radius * self.orbit_radius * self.orbit_radius in
+            let r3 = maths.pow(self.orbit_radius, 3) in
             let period = TAU * maths.sqrt(r3 / mu) in
             let omega = TAU / maths.max(period, 1.0) in
             dt.advance_phase(prev, omega)
@@ -443,7 +442,7 @@ entity stellar.moon {
             # Kepler's third law for orbital period
             # Use explicit multiplication for orbit_radius³ because maths.pow doesn't preserve dimensional exponents
             let mu = const.stellar.gravitational_constant * planet.mass in
-            let r3 = self.orbit_radius * self.orbit_radius * self.orbit_radius in
+            let r3 = maths.pow(self.orbit_radius, 3) in
             let period = TAU * maths.sqrt(r3 / mu) in
             let omega = TAU / maths.max(period, 1.0) in
             dt.advance_phase(prev, omega)
@@ -548,13 +547,12 @@ entity stellar.moon {
     
         resolve {
             # Simplified tidal heating: P = k * (M_moon/r³)² * e² * R^5 * n
-            # Use explicit multiplication for cube because maths.pow doesn't preserve dimensional exponents
-            let orbit_r3 = self.orbit_radius * self.orbit_radius * self.orbit_radius in
+            let orbit_r3 = maths.pow(self.orbit_radius, 3) in
             let n = maths.sqrt(const.stellar.gravitational_constant * planet.mass / orbit_r3) in
             let factor = const.stellar.love_number / const.stellar.tidal_quality_factor in
-            let dist_r3 = self.distance * self.distance * self.distance in
+            let dist_r3 = maths.pow(self.distance, 3) in
             let term = self.mass / maths.max(dist_r3, 1.0) in
-            let r5 = planet.radius * planet.radius * planet.radius * planet.radius * planet.radius in
+            let r5 = maths.pow(planet.radius, 5) in
             factor * term * term * self.orbit_eccentricity * self.orbit_eccentricity * r5 * n
         }
     }

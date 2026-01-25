@@ -502,6 +502,11 @@ pub enum UnitDerivation {
 
     /// Inverse of parameter N unit (1 / unit)
     Inverse(usize),
+
+    /// Parameter N unit raised to integer power
+    /// Power(param_index, exponent)
+    /// Example: Power(0, 3) means param_0_unit³
+    Power(usize, i8),
 }
 
 /// Kernel purity class

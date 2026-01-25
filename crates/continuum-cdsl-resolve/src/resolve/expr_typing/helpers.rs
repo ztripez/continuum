@@ -969,6 +969,78 @@ pub fn type_as_kernel_call(
     args: &[Expr],
     span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    // Special case: maths.pow() with literal integer exponent
+    // Enables dimensional exponentiation: pow(x<m>, 3) -> Scalar<m³>
+    if kernel.namespace == "maths" && kernel.name == "pow" && args.len() == 2 {
+        // Check if second argument (exponent) is a literal integer
+        if let UntypedKind::Literal { value, unit } = &args[1].kind {
+            if unit.is_none()
+                && value.fract() == 0.0
+                && *value >= i8::MIN as f64
+                && *value <= i8::MAX as f64
+            {
+                let exponent = *value as i8;
+
+                // Type the base argument
+                let base_arg = type_expression(&args[0], ctx, None)?;
+
+                // Derive output type: base_type with unit raised to exponent power
+                let base_kernel = base_arg
+                    .ty
+                    .as_kernel()
+                    .ok_or_else(|| err_internal(span, "pow base must be scalar"))?;
+
+                let output_unit = base_kernel.unit
+                    .pow(exponent)
+                    .ok_or_else(|| vec![CompileError::new(
+                        ErrorKind::InvalidKernelUnit,
+                        span,
+                        format!("Cannot raise {} to power {} (non-multiplicative units cannot be exponentiated)", base_arg.ty, exponent)
+                    )])?;
+
+                let output_type = Type::Kernel(KernelType {
+                    shape: base_kernel.shape.clone(),
+                    unit: output_unit,
+                    bounds: base_kernel.bounds.clone(),
+                });
+
+                // Create typed exponent literal (dimensionless)
+                let exp_arg = TypedExpr::new(
+                    ExprKind::Literal {
+                        value: *value,
+                        unit: None,
+                    },
+                    Type::Kernel(KernelType::dimensionless_scalar()),
+                    args[1].span,
+                );
+
+                return Ok((
+                    ExprKind::Call {
+                        kernel: kernel.clone(),
+                        args: vec![base_arg, exp_arg],
+                    },
+                    output_type,
+                ));
+            }
+        }
+
+        // Non-integer exponent with units: error
+        let exp_arg = type_expression(&args[1], ctx, None)?;
+        if exp_arg
+            .ty
+            .as_kernel()
+            .map(|kt| !kt.unit.is_dimensionless())
+            .unwrap_or(false)
+        {
+            return Err(vec![CompileError::new(
+                ErrorKind::TypeMismatch,
+                span,
+                "pow() exponent must be dimensionless (cannot raise unit to dimensional power)"
+                    .to_string(),
+            )]);
+        }
+    }
+
     // Look up kernel signature first to derive expected types for arguments
     let sig = ctx
         .kernel_registry

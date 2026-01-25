@@ -224,6 +224,19 @@ pub fn derive_return_type(
                 )]
             })?
         }
+        UnitDerivation::Power(idx, exponent) => {
+            let kt = get_kernel_arg(args, *idx, span, "unit power base")?;
+            kt.unit.pow(*exponent).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "cannot raise unit {} to power {} (non-multiplicative units cannot be exponentiated)",
+                        kt.unit, exponent
+                    ),
+                )]
+            })?
+        }
     };
 
     Ok(Type::Kernel(KernelType {
