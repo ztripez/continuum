@@ -81,8 +81,19 @@ pub(crate) fn flatten_entity_members(
 
     for decl in declarations {
         if let Declaration::Entity(ref entity) = decl {
-            // Keep the entity declaration
-            flattened.push(decl.clone());
+            // Extract topology from entity attributes (if present)
+            let topology = crate::resolve::attributes::extract_topology(
+                &entity.attributes,
+                entity.span,
+                errors,
+            );
+
+            // Create modified entity with topology populated
+            let mut modified_entity = entity.clone();
+            modified_entity.topology = topology;
+
+            // Keep the entity declaration (with topology populated)
+            flattened.push(Declaration::Entity(modified_entity));
 
             // Extract stratum from entity attributes (if present)
             let entity_stratum =

@@ -204,6 +204,146 @@ pub fn has_attribute(attrs: &[Attribute], attr_name: &str) -> bool {
     attrs.iter().any(|a| a.name == attr_name)
 }
 
+/// Extracts topology expression from `:topology(...)` attribute.
+///
+/// Parses topology declarations like `:topology(icosahedron_grid { subdivisions: 5 })`.
+///
+/// # Fail-Hard Behavior
+///
+/// Emits errors for:
+/// - Wrong number of arguments (not exactly 1)
+/// - Non-struct argument (must be struct literal)
+/// - Unknown topology type (not icosahedron_grid)
+/// - Missing or invalid `subdivisions` field
+/// - Returns `None` only when attribute doesn't exist (legitimate absence)
+///
+/// # Parameters
+///
+/// * `attrs` - Attribute slice to search
+/// * `context_span` - Span for error context (entity location)
+/// * `errors` - Error accumulator
+///
+/// # Returns
+///
+/// - `Some(TopologyExpr)`: Successfully parsed topology
+/// - `None`: Attribute not found (not an error) OR error emitted
+///
+/// # Examples
+///
+/// ```cdsl
+/// entity cell {
+///     :topology(icosahedron_grid { subdivisions: 5 })
+///     member elevation : Scalar<m>
+/// }
+/// ```
+pub fn extract_topology(
+    attrs: &[Attribute],
+    context_span: Span,
+    errors: &mut Vec<CompileError>,
+) -> Option<continuum_cdsl_ast::TopologyExpr> {
+    use continuum_cdsl_ast::TopologyExpr;
+
+    let attr = attrs.iter().find(|a| a.name == "topology")?;
+
+    // Validate argument count
+    if attr.args.len() != 1 {
+        errors.push(CompileError::new(
+            ErrorKind::Syntax,
+            attr.span,
+            format!(
+                ":topology attribute expects exactly 1 argument (topology expression), got {}",
+                attr.args.len()
+            ),
+        ));
+        return None;
+    }
+
+    let arg = &attr.args[0];
+
+    // Extract struct expression
+    let UntypedKind::Struct {
+        ty: type_path,
+        fields,
+    } = &arg.kind
+    else {
+        errors.push(CompileError::new(
+            ErrorKind::Syntax,
+            arg.span,
+            format!(
+                ":topology argument must be a topology expression (e.g., icosahedron_grid {{ ... }}), found {}",
+                describe_expr_kind(&arg.kind)
+            ),
+        ).with_label(context_span, "in this :topology attribute".to_string()));
+        return None;
+    };
+
+    // Check topology type
+    let type_name = type_path.last()?;
+    match type_name.as_ref() {
+        "icosahedron_grid" => {
+            // Extract subdivisions field
+            let subdivisions_field = fields.iter().find(|(name, _)| name == "subdivisions");
+            let subdivisions = match subdivisions_field {
+                Some((_, expr)) => {
+                    // Extract literal value
+                    match &expr.kind {
+                        UntypedKind::Literal { value, .. } => {
+                            let sub = *value as u32;
+                            if (*value as f64 - sub as f64).abs() > 1e-10 {
+                                errors.push(CompileError::new(
+                                    ErrorKind::Syntax,
+                                    expr.span,
+                                    format!(
+                                        "subdivisions must be a non-negative integer, got {}",
+                                        value
+                                    ),
+                                ));
+                                return None;
+                            }
+                            sub
+                        }
+                        _ => {
+                            errors.push(CompileError::new(
+                                ErrorKind::Syntax,
+                                expr.span,
+                                format!(
+                                    "subdivisions must be a literal integer, found {}",
+                                    describe_expr_kind(&expr.kind)
+                                ),
+                            ));
+                            return None;
+                        }
+                    }
+                }
+                None => {
+                    errors.push(CompileError::new(
+                        ErrorKind::Syntax,
+                        arg.span,
+                        "icosahedron_grid topology requires 'subdivisions' field".to_string(),
+                    ));
+                    return None;
+                }
+            };
+
+            Some(TopologyExpr::IcosahedronGrid {
+                subdivisions,
+                span: arg.span,
+            })
+        }
+        other => {
+            errors.push(CompileError::new(
+                ErrorKind::Syntax,
+                arg.span,
+                format!(
+                    "unknown topology type '{}' (supported: icosahedron_grid)",
+                    other
+                ),
+            ));
+            None
+        }
+    }
+}
+
 /// Extracts a path from an expression, handling various syntactic forms.
 ///
 /// Handles expressions that can represent paths:
@@ -470,5 +610,111 @@ mod tests {
         assert!(has_attribute(&attrs, "stratum"));
         assert!(has_attribute(&attrs, "uses"));
         assert!(!has_attribute(&attrs, "integrator"));
+    }
+
+    #[test]
+    fn test_extract_topology_icosahedron_grid() {
+        use continuum_cdsl_ast::TopologyExpr;
+
+        let span = test_span();
+        let attrs = vec![Attribute {
+            name: "topology".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Struct {
+                    ty: Path::from_path_str("icosahedron_grid"),
+                    fields: vec![(
+                        "subdivisions".to_string(),
+                        Expr::new(
+                            UntypedKind::Literal {
+                                value: 5.0,
+                                unit: None,
+                            },
+                            span,
+                        ),
+                    )],
+                },
+                span,
+            )],
+            span,
+        }];
+
+        let mut errors = Vec::new();
+        let topology = extract_topology(&attrs, span, &mut errors);
+
+        assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+        assert!(topology.is_some());
+
+        if let Some(TopologyExpr::IcosahedronGrid { subdivisions, .. }) = topology {
+            assert_eq!(subdivisions, 5);
+        } else {
+            panic!("Expected IcosahedronGrid, got: {:?}", topology);
+        }
+    }
+
+    #[test]
+    fn test_extract_topology_missing_subdivisions() {
+        let span = test_span();
+        let attrs = vec![Attribute {
+            name: "topology".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Struct {
+                    ty: Path::from_path_str("icosahedron_grid"),
+                    fields: vec![],
+                },
+                span,
+            )],
+            span,
+        }];
+
+        let mut errors = Vec::new();
+        let topology = extract_topology(&attrs, span, &mut errors);
+
+        assert_eq!(topology, None);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("requires 'subdivisions' field"));
+    }
+
+    #[test]
+    fn test_extract_topology_invalid_type() {
+        let span = test_span();
+        let attrs = vec![Attribute {
+            name: "topology".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Struct {
+                    ty: Path::from_path_str("cartesian_grid"),
+                    fields: vec![],
+                },
+                span,
+            )],
+            span,
+        }];
+
+        let mut errors = Vec::new();
+        let topology = extract_topology(&attrs, span, &mut errors);
+
+        assert_eq!(topology, None);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("unknown topology type"));
+        assert!(errors[0].message.contains("cartesian_grid"));
+    }
+
+    #[test]
+    fn test_extract_topology_not_struct() {
+        let span = test_span();
+        let attrs = vec![Attribute {
+            name: "topology".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Local("icosahedron_grid".to_string()),
+                span,
+            )],
+            span,
+        }];
+
+        let mut errors = Vec::new();
+        let topology = extract_topology(&attrs, span, &mut errors);
+
+        assert_eq!(topology, None);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("must be a topology expression"));
     }
 }
