@@ -1026,10 +1026,98 @@ pub fn type_as_kernel_call(
             }
         }
 
-        // TODO: Add support for fractional exponents (1/3, 2/3, etc.)
-        // Requires parsing division expressions at compile-time
-        // Infrastructure is in place: PowerRational variant, pow_rational() method
-        // Example: pow(energy<J>, 1/3) should produce Scalar<J^(1/3)>
+        // Check for fractional exponent (division of two integer literals)
+        // Example: pow(x, 1/3) or pow(x, 2/3)
+        if let UntypedKind::Binary { op, left, right } = &args[1].kind {
+            if matches!(op, continuum_cdsl_ast::foundation::BinaryOp::Div) {
+                // Check if both sides are integer literals
+                if let (
+                    UntypedKind::Literal {
+                        value: num_val,
+                        unit: None,
+                    },
+                    UntypedKind::Literal {
+                        value: denom_val,
+                        unit: None,
+                    },
+                ) = (&left.kind, &right.kind)
+                {
+                    // Validate integer values
+                    if num_val.fract() == 0.0
+                        && denom_val.fract() == 0.0
+                        && num_val >= &(i8::MIN as f64)
+                        && num_val <= &(i8::MAX as f64)
+                        && denom_val >= &1.0
+                        && denom_val <= &(u8::MAX as f64)
+                    {
+                        let numerator = *num_val as i8;
+                        let denominator = *denom_val as u8;
+
+                        // Type the base argument
+                        let base_arg = type_expression(&args[0], ctx, None)?;
+
+                        // Derive output type: base_type with unit raised to rational power
+                        let base_kernel = base_arg
+                            .ty
+                            .as_kernel()
+                            .ok_or_else(|| err_internal(span, "pow base must be scalar"))?;
+
+                        let rational_exp =
+                            continuum_kernel_types::Rational::new(numerator, denominator);
+                        let output_unit = base_kernel.unit.pow_rational(rational_exp).ok_or_else(|| {
+                            vec![CompileError::new(
+                                ErrorKind::InvalidKernelUnit,
+                                span,
+                                format!(
+                                    "Cannot raise {} to power {} (non-multiplicative units cannot be exponentiated)",
+                                    base_arg.ty, rational_exp
+                                ),
+                            )]
+                        })?;
+
+                        let output_type = Type::Kernel(KernelType {
+                            shape: base_kernel.shape.clone(),
+                            unit: output_unit,
+                            bounds: base_kernel.bounds.clone(),
+                        });
+
+                        // Create typed exponent expression (division of dimensionless literals)
+                        let num_typed = TypedExpr::new(
+                            ExprKind::Literal {
+                                value: *num_val,
+                                unit: None,
+                            },
+                            Type::Kernel(KernelType::dimensionless_scalar()),
+                            left.span,
+                        );
+                        let denom_typed = TypedExpr::new(
+                            ExprKind::Literal {
+                                value: *denom_val,
+                                unit: None,
+                            },
+                            Type::Kernel(KernelType::dimensionless_scalar()),
+                            right.span,
+                        );
+                        let exp_arg = TypedExpr::new(
+                            ExprKind::Call {
+                                kernel: continuum_kernel_types::KernelId::new("maths", "divide"),
+                                args: vec![num_typed, denom_typed],
+                            },
+                            Type::Kernel(KernelType::dimensionless_scalar()),
+                            args[1].span,
+                        );
+
+                        return Ok((
+                            ExprKind::Call {
+                                kernel: kernel.clone(),
+                                args: vec![base_arg, exp_arg],
+                            },
+                            output_type,
+                        ));
+                    }
+                }
+            }
+        }
 
         // Non-integer exponent with units: error
         let exp_arg = type_expression(&args[1], ctx, None)?;

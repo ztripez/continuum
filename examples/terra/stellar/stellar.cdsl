@@ -719,10 +719,9 @@ impulse stellar.impact {
             mantle.heat_content <- mantle_energy
             surface.temp <- crust_energy / 1.0e20  # Normalize to temperature increment
 
-            # TODO: Fix units - ejecta_thickness formula produces complex units from energy^0.333
-            # Crustal thickening from ejecta/melt redistribution (simplified)
-            # let ejecta_thickness = maths.pow(energy_j, 0.333) * config.stellar.impact.ejecta_thickness_factor
-            let ejecta_thickness = energy_j / 1.0e22  # Simplified: normalize energy to meters
+            # Crustal thickening from ejecta/melt redistribution
+            # Physics: ejecta volume ∝ energy^(1/3) (crater scaling law)
+            let ejecta_thickness = maths.pow(energy_j, 1/3) * config.stellar.impact.ejecta_thickness_factor
             crust.thickness <- ejecta_thickness
 
             # Large impacts can trigger volcanic activity

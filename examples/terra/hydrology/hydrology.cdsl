@@ -717,7 +717,7 @@ fracture hydrology.sediment_transport {
 
     config {
         capacity_coefficient: 1e-4          # Transport capacity coefficient
-        discharge_exponent: 0.6             # Discharge influence on capacity
+        discharge_exponent: 0.6             # Discharge influence (3/5 = 0.6, stream power law)
         deposition_rate: 0.1                # Fraction of excess deposited per timestep
     }
 
@@ -727,15 +727,14 @@ fracture hydrology.sediment_transport {
     }
 
     collect {
-        # TODO: Fix unit mismatch - capacity has units from discharge^exponent (kg/s)^0.6
-        # while sediment_load is kg/m². Need to redesign transport capacity calculation.
-        # Transport capacity: C = K * Q^a
-        # let discharge = hydrology.runoff_accumulation
-        # let capacity = config.hydrology.sediment_transport.capacity_coefficient * maths.pow(discharge, config.hydrology.sediment_transport.discharge_exponent)
+        # Transport capacity: C = K * Q^(3/5) (stream power law)
+        # Physics: sediment transport capacity ∝ discharge^(3/5)
+        let discharge = hydrology.runoff_accumulation
+        let capacity = config.hydrology.sediment_transport.capacity_coefficient * maths.pow(discharge, 3/5)
         let sediment = hydrology.sediment_load
 
-        # If sediment > threshold, deposit excess (simplified until physics redesign)
-        let excess = maths.max(sediment - 1.0, 0.0)
+        # If sediment exceeds capacity, deposit excess
+        let excess = maths.max(sediment - capacity, 0.0)
         let deposition = excess * config.hydrology.sediment_transport.deposition_rate
         hydrology.sediment_load <- -deposition
     }
