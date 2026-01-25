@@ -89,9 +89,8 @@ fn atmosphere.saturation_vapor_pressure(temperature_k) {
 }
 
 /// Equilibrium water vapor column mass
-/// NOTE: Uses maths.clamp for RH (relative humidity is a physical fraction 0-1)
-/// Callers must declare : uses(maths.clamping)
 fn atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
+    : uses(maths.clamping)
     let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
     let rh = maths.clamp(relative_humidity, 0.0, 1.0) in
     # Gas constant for water vapor Rv = 461 J/(kg·K)
