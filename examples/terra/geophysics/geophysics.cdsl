@@ -183,6 +183,7 @@ config {
 signal planet.radius {
     : Scalar<m, 1e6..1e8>
     : stratum(genesis)
+    : initial(6.371e6)
     : title("Planet Radius")
     : symbol("R")
 
@@ -199,6 +200,7 @@ signal planet.radius {
 signal planet.mass {
     : Scalar<kg, 1e22..1e28>
     : stratum(genesis)
+    : initial(5.972e24)
     : title("Planet Mass")
     : symbol("M")
 
@@ -216,6 +218,7 @@ signal planet.mass {
 signal planet.gravity_mu {
     : Scalar<m³/s², 1e12..1e18>
     : stratum(genesis)
+    : initial(3.986e14)
     : title("Gravitational Parameter")
     : symbol("mu")
 
@@ -233,6 +236,7 @@ signal planet.gravity_mu {
 signal planet.surface_gravity {
     : Scalar<m/s², 1..50>
     : stratum(genesis)
+    : initial(9.81)
     : title("Surface Gravity")
     : symbol("g")
 
@@ -262,6 +266,10 @@ signal rotation.state {
         initial_omega: 7.292e-5
     }
 
+    initial {
+        vector.vec2(config.rotation.state.initial_phase, config.rotation.state.initial_omega)
+    }
+
     resolve {
         # Phase advances with angular velocity using integrate
         let phase = dt.integrate(prev.x, prev.y) in
@@ -281,6 +289,7 @@ signal rotation.state {
 signal rotation.obliquity {
     : Scalar<rad, 0..PI>
     : stratum(rotation)
+    : initial(0.409)
     : title("Axial Obliquity")
     : symbol("epsilon")
 
@@ -305,6 +314,7 @@ signal rotation.obliquity {
 signal rotation.precession {
     : Scalar<rad, 0..TAU>
     : stratum(rotation)
+    : initial(0.0)
     : title("Precession Angle")
     : symbol("psi")
 
@@ -331,6 +341,12 @@ signal rotation.spin_axis {
     : stratum(rotation)
     : title("Spin Axis World")
     : symbol("n_spin")
+
+    initial {
+        # Initial spin axis for obliquity=0.409 rad, precession=0
+        # x = sin(0.409)*sin(0) = 0, y = cos(0.409) = 0.917, z = sin(0.409)*cos(0) = 0.398
+        vector.vec3(0.0, 0.917, 0.398)
+    }
 
     resolve {
         # Compute unit vector from spherical angles
@@ -359,6 +375,7 @@ signal rotation.spin_axis {
 signal core.temp {
     : Scalar<K, 100..10000>
     : stratum(thermal)
+    : initial(5500.0)
     : title("Core Temperature")
     : symbol("T_core")
 
@@ -381,6 +398,7 @@ signal core.temp {
 signal core.heat_power {
     : Scalar<W, 0..1e15>
     : stratum(thermal)
+    : initial(4.0e13)
     : title("Core Heat Power")
     : symbol("P_core")
 
@@ -406,6 +424,7 @@ signal core.heat_power {
 signal mantle.heat_content {
     : Scalar<J, 1e28..1e32>
     : stratum(thermal)
+    : initial(8.0e30)
     : title("Mantle Heat Content")
     : symbol("Q_mantle")
 
@@ -428,6 +447,7 @@ signal mantle.heat_content {
 signal mantle.temp {
     : Scalar<K, 500..5000>
     : stratum(thermal)
+    : initial(1600.0)
     : uses(maths.clamping)
     : title("Mantle Temperature")
 
@@ -470,6 +490,7 @@ signal surface.temp {
 signal surface.heat_flow {
     : Scalar<W/m², 0.01..0.5>
     : stratum(thermal)
+    : initial(0.065)
     : uses(maths.clamping)
     : title("Surface Heat Flow")
     : symbol("q")
@@ -497,6 +518,7 @@ signal surface.heat_flow {
 signal crust.density {
     : Scalar<kg/m³, 2000..3500>
     : stratum(tectonics)
+    : initial(2700.0)
     : uses(maths.clamping)
     : title("Crustal Density")
     : symbol("rho_crust")
@@ -521,6 +543,7 @@ signal crust.density {
 signal crust.thickness {
     : Scalar<m, 3000..80000>
     : stratum(tectonics)
+    : initial(35000.0)
     : uses(maths.clamping)
     : title("Crustal Thickness")
     : symbol("h_crust")
@@ -545,6 +568,7 @@ signal crust.thickness {
 signal crust.total_thickness {
     : Scalar<m, 0..100000>
     : stratum(tectonics)
+    : initial(35000.0)
     : title("Total Crustal Thickness")
 
     resolve {
@@ -561,6 +585,7 @@ signal crust.total_thickness {
 signal isostasy.factor {
     : Scalar<1, 0..1>
     : stratum(tectonics)
+    : initial(0.182)
     : title("Isostatic Factor")
 
     config {
@@ -581,6 +606,7 @@ signal isostasy.factor {
 signal isostasy.reference_level {
     : Scalar<m, 0..10000>
     : stratum(tectonics)
+    : initial(6370.0)
     : title("Isostatic Reference Level")
 
     resolve {
@@ -596,6 +622,7 @@ signal isostasy.reference_level {
 signal isostasy.elevation {
     : Scalar<m, -15000..15000>
     : stratum(tectonics)
+    : initial(0.0)
     : title("Isostatic Elevation")
 
     resolve {
@@ -615,6 +642,7 @@ signal isostasy.elevation {
 signal topography.dynamic_offset {
     : Scalar<m, -1200..2400>
     : stratum(tectonics)
+    : initial(0.0)
     : uses(maths.clamping)
     : title("Dynamic Topography Offset")
 
@@ -646,6 +674,7 @@ signal topography.dynamic_offset {
 signal crust.elevation {
     : Scalar<m, -11000..9000>
     : stratum(tectonics)
+    : initial(0.0)
     : uses(maths.clamping)
     : title("Surface Elevation")
     : symbol("h_elev")
@@ -715,6 +744,7 @@ signal crust.temp_base {
 signal crust.moho_depth {
     : Scalar<m, 3000..80000>
     : stratum(tectonics)
+    : initial(35000.0)
     : title("Moho Depth")
 
     resolve {
@@ -734,6 +764,7 @@ signal crust.moho_depth {
 signal tectonics.boundary_stress {
     : Scalar<N/m², 0..1e9>
     : stratum(tectonics)
+    : initial(0.0)
     : uses(maths.clamping)
     : title("Plate Boundary Stress")
 
@@ -762,6 +793,7 @@ signal tectonics.boundary_stress {
 signal tectonics.activity {
     : Scalar<1, 0..100>
     : stratum(tectonics)
+    : initial(1.0)
     : title("Tectonic Activity")
     : symbol("A_tec")
 
@@ -789,6 +821,7 @@ signal tectonics.activity {
 signal tectonics.plate_count {
     : Scalar<1, 0..64>
     : stratum(tectonics)
+    : initial(12.0)
     : title("Plate Count")
 
     resolve {
@@ -805,6 +838,7 @@ signal tectonics.plate_count {
 signal mantle.viscosity {
     : Scalar<Pa*s, 0..1e24>
     : stratum(tectonics)
+    : initial(1e21)
     : title("Mantle Viscosity")
     : symbol("eta")
 
@@ -834,6 +868,7 @@ signal mantle.viscosity {
 signal mantle.rayleigh_number {
     : Scalar<1, 0..1e10>
     : stratum(tectonics)
+    : initial(1.0)
     : title("Effective Rayleigh Number")
     : symbol("Ra")
 
@@ -863,6 +898,7 @@ signal mantle.rayleigh_number {
 signal mantle.convection_cells {
     : Scalar<1, 2..12>
     : stratum(tectonics)
+    : initial(4.0)
     : uses(maths.clamping)
     : title("Convection Cell Count")
     : symbol("N_cells")
@@ -895,6 +931,7 @@ signal mantle.convection_cells {
 signal mantle.flow_strength {
     : Scalar<cm/yr, 0..50>
     : stratum(tectonics)
+    : initial(5.0)
     : title("Mantle Flow Strength")
     : symbol("v_mantle")
 
@@ -924,6 +961,7 @@ signal mantle.flow_strength {
 signal tectonics.orogeny_rate {
     : Scalar<m/Myr, 0..10000>
     : stratum(tectonics)
+    : initial(0.0)
     : title("Orogeny Rate")
     : symbol("dh/dt")
 
@@ -948,6 +986,7 @@ signal tectonics.orogeny_rate {
 signal tectonics.volcanism {
     : Scalar<1, 0..100>
     : stratum(tectonics)
+    : initial(0.0)
     : uses(maths.clamping)
     : title("Volcanism Index")
     : symbol("V_idx")
@@ -976,6 +1015,7 @@ signal tectonics.volcanism {
 signal tectonics.subduction_rate {
     : Scalar<km²/Myr, 0..10>
     : stratum(tectonics)
+    : initial(0.0)
     : title("Subduction Rate")
     : symbol("A_sub")
 
@@ -1002,6 +1042,7 @@ signal tectonics.subduction_rate {
 signal tectonics.spreading_rate {
     : Scalar<km²/Myr, 0..10>
     : stratum(tectonics)
+    : initial(0.0)
     : title("Seafloor Spreading Rate")
     : symbol("A_spread")
 
@@ -1275,6 +1316,7 @@ signal plates.continental_count {
 signal plates.boundary_shear {
     : Scalar<m/s, 0..1>
     : stratum(tectonics)
+    : initial(0.0)
     : title("Plate Boundary Shear")
     : symbol("tau_boundary")
 
@@ -1415,6 +1457,7 @@ signal plates.mean_omega {
 signal plates.velocity_variance {
     : Scalar<m²/s², 0..1>
     : stratum(tectonics)
+    : initial(0.0)
     : title("Plate Velocity Variance")
     : symbol("sigma_v²")
 
@@ -1431,6 +1474,7 @@ signal plates.velocity_variance {
 signal plates.divergent_activity {
     : Scalar<1, 0..10>
     : stratum(tectonics)
+    : initial(0.0)
     : uses(maths.clamping)
     : title("Divergent Boundary Activity")
     : symbol("A_div")
@@ -1453,6 +1497,7 @@ signal plates.divergent_activity {
 signal plates.convergent_activity {
     : Scalar<1, 0..10>
     : stratum(tectonics)
+    : initial(0.0)
     : uses(maths.clamping)
     : title("Convergent Boundary Activity")
     : symbol("A_conv")
@@ -1475,6 +1520,7 @@ signal plates.convergent_activity {
 signal plates.transform_activity {
     : Scalar<1, 0..10>
     : stratum(tectonics)
+    : initial(0.0)
     : uses(maths.clamping)
     : title("Transform Boundary Activity")
     : symbol("A_trans")

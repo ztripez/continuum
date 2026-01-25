@@ -107,6 +107,7 @@ fn hydrology.water_presence(water_mass_kg, reference_mass_kg) {
 # Global water mass budget
 signal hydrology.water_mass {
     : Scalar<kg, 0..1e20>
+    : initial(1e18)
     : uses(maths.clamping)
     : stratum(hydrology)
     : title("Total Surface Water Mass")
@@ -133,6 +134,7 @@ signal hydrology.water_mass {
 # Ice mass (glaciers, ice sheets)
 signal hydrology.ice_mass {
     : Scalar<kg, 0..1e19>
+    : initial(2.6e19)
     : stratum(hydrology)
     : title("Total Ice Mass")
     : symbol("M_ice")
@@ -168,6 +170,7 @@ signal hydrology.ice_mass {
 
 signal hydrology.evaporation_rate {
     : Scalar<kg/m²/s, 0..1e-3>
+    : initial(0.0)
     : uses(maths.clamping)
     : stratum(hydrology)
     : title("Evaporation Rate")
@@ -241,6 +244,7 @@ signal hydrology.precipitation_rate {
 
 signal hydrology.runoff_accumulation {
     : Scalar<kg/s, 0..1e15>
+    : initial(0.0)
     : uses(maths.clamping)
     : stratum(hydrology)
     : title("Runoff Accumulation")
@@ -273,6 +277,7 @@ signal hydrology.runoff_accumulation {
 
 signal hydrology.sediment_load {
     : Scalar<kg/m², 0..10>
+    : initial(0.0)
     : uses(maths.clamping)
     : stratum(hydrology)
     : title("Sediment Load")
@@ -306,6 +311,7 @@ signal hydrology.sediment_load {
 
 signal hydrology.chemical_weathering {
     : Scalar<kg/m²/yr, 0..1>
+    : initial(0.01)
     : uses(maths.clamping)
     : stratum(hydrology)
     : title("Chemical Weathering Rate")
@@ -342,6 +348,7 @@ signal hydrology.chemical_weathering {
 
 signal hydrology.water_temperature {
     : Scalar<K, 271..313>
+    : initial(288.0)
     : uses(maths.clamping)
     : stratum(hydrology)
     : title("Surface Water Temperature")
@@ -486,6 +493,7 @@ signal hydrology.baseflow_rate {
 # Dissolved gas in surface water
 signal hydrology.dissolved_gas {
     : Scalar<mol/m³, 0..100>
+    : initial(10.0)
     : stratum(hydrology)
     : title("Dissolved Gas Content")
     : symbol("G")
@@ -516,6 +524,7 @@ signal hydrology.dissolved_gas {
 # Flow accumulation (upstream contributing area proxy)
 signal hydrology.flow_accumulation {
     : Scalar<1, 0..1e6>
+    : initial(1.0)
     : stratum(hydrology)
     : title("Flow Accumulation")
     : symbol("A_flow")
@@ -1099,6 +1108,7 @@ entity hydrology.cell {
 # Total water mass across all cells
 signal hydrology.cells.total_water {
     : Scalar<kg, 0..1e20>
+    : initial(1e18)
     : stratum(hydrology)
     : title("Total Cell Water Mass")
     : symbol("M_total")
@@ -1111,6 +1121,7 @@ signal hydrology.cells.total_water {
 # Mean water temperature
 signal hydrology.cells.mean_temperature {
     : Scalar<K, 271..313>
+    : initial(288.0)
     : stratum(hydrology)
     : title("Mean Cell Temperature")
     : symbol("T_mean")
@@ -1123,6 +1134,7 @@ signal hydrology.cells.mean_temperature {
 # Total sediment load
 signal hydrology.cells.total_sediment {
     : Scalar<kg/m², 0..10000>
+    : initial(0.0)
     : stratum(hydrology)
     : title("Total Cell Sediment")
     : symbol("S_total")
@@ -1135,6 +1147,7 @@ signal hydrology.cells.total_sediment {
 # Mean ice fraction (global ice coverage proxy)
 signal hydrology.cells.mean_ice_fraction {
     : Scalar<1, 0..1>
+    : initial(0.0)
     : stratum(hydrology)
     : title("Mean Ice Fraction")
     : symbol("f_ice_mean")
@@ -1147,6 +1160,7 @@ signal hydrology.cells.mean_ice_fraction {
 # Count of frozen cells (ice phase dominant)
 signal hydrology.cells.frozen_count {
     : Scalar<1, 0..10000>
+    : initial(0.0)
     : stratum(hydrology)
     : title("Frozen Cell Count")
     : symbol("N_ice")
@@ -1159,6 +1173,7 @@ signal hydrology.cells.frozen_count {
 # Count of liquid cells
 signal hydrology.cells.liquid_count {
     : Scalar<1, 0..10000>
+    : initial(0.0)
     : stratum(hydrology)
     : title("Liquid Cell Count")
     : symbol("N_liquid")
