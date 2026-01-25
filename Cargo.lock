@@ -505,6 +505,7 @@ dependencies = [
  "continuum-cdsl",
  "continuum-foundation",
  "continuum-runtime",
+ "indexmap",
  "serde",
  "serde_json",
  "tokio",

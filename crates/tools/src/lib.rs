@@ -8,3 +8,6 @@ pub mod ipc_types;
 pub mod request_handlers;
 pub mod run_world_intent;
 pub mod world_api;
+
+// Re-export renamed type
+pub use ipc_server::SimulationController;

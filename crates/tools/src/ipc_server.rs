@@ -9,14 +9,17 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info, warn};
 
-/// A simulation server that executes a world intent and provides IPC access.
-pub struct SimulationServer {
+/// A simulation controller that executes a world intent and provides IPC access.
+///
+/// Note: This is a *controller*, not an observer. It can mutate simulation state
+/// via step commands. See AGENTS.md for observer boundary principles.
+pub struct SimulationController {
     state: Arc<ServerState>,
     router: Arc<RequestRouter>,
 }
 
-impl SimulationServer {
-    /// Create a new simulation server for the given intent.
+impl SimulationController {
+    /// Create a new simulation controller for the given intent.
     pub fn new(intent: RunWorldIntent) -> Result<Self, crate::run_world_intent::RunWorldError> {
         let compiled = intent.load()?;
         let runtime = build_runtime(compiled.clone(), None);
@@ -37,7 +40,7 @@ impl SimulationServer {
         }
 
         let listener = UnixListener::bind(socket_path)?;
-        info!("Simulation server listening on {}", socket_path.display());
+        info!("Simulation controller listening on {}", socket_path.display());
 
         let mut error_count = 0;
         loop {
@@ -57,7 +60,7 @@ impl SimulationServer {
                     error!("Failed to accept IPC connection: {}", e);
                     error_count += 1;
                     if error_count > 10 {
-                        error!("Too many consecutive IO errors, shutting down simulation server");
+                        error!("Too many consecutive IO errors, shutting down simulation controller");
                         return Err(e);
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
