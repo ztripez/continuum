@@ -229,6 +229,8 @@ It produces a **typed IR** which is the sole input to execution graph constructi
 All simulation primitives are declared in `*.cdsl`:
 
 - **Signals** — authoritative resolved values
+  - Declared with `:initial(value)` for stateful initialization
+  - Runtime panics if stateful signal lacks initialization (fail-hard)
 - **Entities** — pure index spaces (identity only)
 - **Members** — per-entity authoritative state with own strata
 - **Operators** — phase-tagged execution blocks
@@ -240,6 +242,27 @@ All simulation primitives are declared in `*.cdsl`:
 - **Eras** — time phases and execution policy
 
 Dependencies are **inferred**, never manually declared.
+
+### Signal Initialization
+
+Signals using `prev` (stateful signals) must declare initial values:
+
+```cdsl
+signal atmosphere.temperature {
+    : Scalar<K>
+    : initial(288.0)  # Explicit initialization
+    
+    resolve {
+        prev + heating_rate * dt  # 'prev' starts at 288.0
+    }
+}
+```
+
+**Rules:**
+- `:initial(value)` must be a numeric literal (not expression)
+- Processed during resolution pipeline (explicit in AST)
+- Runtime reads `node.initial` before first Resolve phase
+- Missing initialization = runtime panic (fail-hard principle)
 
 ---
 

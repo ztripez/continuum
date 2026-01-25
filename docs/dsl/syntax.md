@@ -427,8 +427,30 @@ signal terra.geophysics.core.temp_k {
 |-----------|-------------|
 | `: Type<...>` | Value type with constraints |
 | `: strata(path)` | Stratum binding |
+| `: initial(value)` | Initial value for runtime (numeric literal) |
 | `: title("...")` | Human-readable name |
 | `: symbol("...")` | Display symbol |
+
+The `:initial()` attribute provides the initial value for signals before the first Resolve phase:
+
+```cdsl
+signal atmosphere.co2_ppmv {
+    : Scalar<ppmv, 100..10000>
+    : stratum(atmosphere)
+    : initial(280.0)  # Earth preindustrial value
+    
+    resolve {
+        # Uses 'prev' which starts at 280.0
+        dt.relax(prev, equilibrium, tau)
+    }
+}
+```
+
+**Rules:**
+- Must be a numeric literal (not an expression)
+- Only valid for Signal role
+- Required for signals using `prev` without literal resolve blocks
+- Runtime panics if stateful signal lacks initialization
 
 ### Resolve Block
 

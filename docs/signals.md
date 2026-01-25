@@ -103,7 +103,54 @@ Silent correction is forbidden by default.
 
 ---
 
-## 7. Signals and Time
+## 7. Signal Initialization
+
+Signals that use `prev` (read their previous value) require initialization.
+
+### Explicit Initialization
+
+Use the `:initial()` attribute to declare initial values:
+
+```cdsl
+signal atmosphere.co2_ppmv {
+    : Scalar<ppmv, 100..10000>
+    : stratum(atmosphere)
+    : initial(280.0)  # Earth preindustrial level
+    
+    resolve {
+        # 'prev' starts at 280.0 on first tick
+        dt.relax(prev, equilibrium, tau)
+    }
+}
+```
+
+### Initialization Rules
+
+- **Explicit is required:** Signals using `prev` must have `:initial(value)`
+- **Literals only:** Value must be a numeric literal, not an expression
+- **Fail-hard:** Missing initialization causes runtime panic before first tick
+- **Processed at compile time:** Initial values are part of the resolved IR
+
+### Literal Resolve Initialization
+
+Signals with literal resolve blocks are auto-initialized:
+
+```cdsl
+signal demo.constant {
+    resolve { 42.0 }  # Auto-initialized to 42.0
+}
+```
+
+### Why Explicit Initialization
+
+1. **No magic:** Initial state is visible in CDSL
+2. **One truth:** Declared once, used everywhere
+3. **Fail-hard:** Missing values detected at startup
+4. **Documentation:** Initial conditions are self-documenting
+
+---
+
+## 8. Signals and Time
 
 Signals are resolved once per tick per stratum.
 
@@ -115,7 +162,7 @@ Signals must be robust to changes in `dt`.
 
 ---
 
-## 8. Signals and Determinism
+## 9. Signals and Determinism
 
 Signals are fully deterministic.
 
