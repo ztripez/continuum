@@ -136,6 +136,14 @@ impl ExecutionContext for TestContext {
         Ok(vec![])
     }
 
+    fn find_neighbors(
+        &self,
+        _entity: &continuum_foundation::EntityId,
+        _instance: Value,
+    ) -> Result<Vec<Value>, ExecutionError> {
+        Ok(vec![]) // Return empty for tests
+    }
+
     fn trigger_assertion_fault(
         &mut self,
         severity: Option<&str>,

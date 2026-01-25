@@ -6,7 +6,7 @@ use crate::bytecode::opcode::Instruction;
 use crate::bytecode::operand::{
     field_access, operand_aggregate_op, operand_block, operand_config_path, operand_const_path,
     operand_entity, operand_field_path, operand_literal, operand_offset, operand_signal_path,
-    operand_slot, operand_string, operand_usize,
+    operand_slot, operand_string, operand_usize, Operand,
 };
 use crate::bytecode::program::BytecodeProgram;
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError, ExecutionRuntime};
@@ -432,17 +432,32 @@ pub(crate) fn handle_within(
 /// # Stack
 /// - [Seq<Entity>, Instance] → [Seq<Instance>]
 pub(crate) fn handle_neighbors(
-    _instruction: &Instruction,
+    instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
     _program: &BytecodeProgram,
-    _ctx: &mut dyn ExecutionContext,
+    ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    let _instance = runtime.pop()?;
-    let _seq_value = runtime.pop()?;
+    let instance = runtime.pop()?;
+    let seq_value = runtime.pop()?;
 
-    // TODO: Implement topology neighbor lookup
-    // For now, return empty sequence
-    runtime.push(Value::Seq(std::sync::Arc::new(vec![])))?;
+    // Extract entity ID from Neighbors operand
+    let entity_id = instruction
+        .operands
+        .first()
+        .and_then(|op| {
+            if let Operand::Entity(id) = op {
+                Some(id)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| ExecutionError::InvalidOperand {
+            message: "Neighbors opcode requires Entity operand".to_string(),
+        })?;
+
+    // Query neighbors from execution context
+    let neighbors = ctx.find_neighbors(entity_id, instance)?;
+    runtime.push(Value::Seq(std::sync::Arc::new(neighbors)))?;
     Ok(())
 }
 

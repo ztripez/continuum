@@ -1244,6 +1244,16 @@ impl<'a> ExecutionContext for VMContext<'a> {
         Ok(filtered)
     }
 
+    fn find_neighbors(
+        &self,
+        _entity: &continuum_foundation::EntityId,
+        _instance: Value,
+    ) -> std::result::Result<Vec<Value>, ExecutionError> {
+        // TODO: Implement actual topology lookup
+        // For now, return empty sequence
+        Ok(vec![])
+    }
+
     fn emit_signal(
         &mut self,
         path: &Path,

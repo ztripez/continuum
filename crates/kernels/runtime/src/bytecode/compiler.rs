@@ -460,9 +460,10 @@ impl Compiler {
                     vec![Operand::Entity(entity.clone())],
                 ));
                 self.compile_expr(block, instance)?;
-                block
-                    .instructions
-                    .push(Instruction::new(OpcodeKind::Neighbors, vec![]));
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::Neighbors,
+                    vec![Operand::Entity(entity.clone())],
+                ));
             }
             ExprKind::Filter { source, predicate } => {
                 self.compile_expr(block, source)?;

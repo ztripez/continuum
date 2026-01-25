@@ -279,6 +279,25 @@ pub trait ExecutionContext {
         radius: Value,
     ) -> Result<Vec<Value>, ExecutionError>;
 
+    /// Finds all topologically connected neighbors of an entity instance.
+    ///
+    /// # Parameters
+    /// - `entity`: Entity type identifier
+    /// - `instance`: Instance value to find neighbors for
+    ///
+    /// # Returns
+    /// Vector of neighbor instance values
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - Entity has no topology defined
+    /// - Instance is invalid or out of bounds
+    fn find_neighbors(
+        &self,
+        entity: &continuum_foundation::EntityId,
+        instance: Value,
+    ) -> Result<Vec<Value>, ExecutionError>;
+
     /// Emits a value to a signal.
     fn emit_signal(&mut self, target: &Path, value: Value) -> Result<(), ExecutionError>;
 

@@ -135,7 +135,7 @@ fn build_specs() -> Vec<OpcodeSpec> {
         op!(Filter, OperandCount::Fixed(2), handle_filter),
         op!(Nearest, OperandCount::Fixed(0), handle_nearest),
         op!(Within, OperandCount::Fixed(0), handle_within),
-        op!(Neighbors, OperandCount::Fixed(0), handle_neighbors),
+        op!(Neighbors, OperandCount::Fixed(1), handle_neighbors),
         op!(Aggregate, OperandCount::Fixed(3), handle_aggregate),
         op!(Fold, OperandCount::Fixed(3), handle_fold),
         op!(FieldAccess, OperandCount::Fixed(1), handle_field_access),
