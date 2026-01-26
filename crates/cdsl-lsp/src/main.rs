@@ -192,8 +192,13 @@ impl LanguageServer for Backend {
                 document_formatting_provider: Some(OneOf::Left(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![".".to_string()]),
+                    ..Default::default()
+                }),
+                references_provider: Some(OneOf::Left(true)),
                 // TODO: Re-enable as handlers are implemented
-                // completion_provider: Some(CompletionOptions { ... }),
                 // ... etc
                 ..Default::default()
             },
@@ -359,6 +364,213 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let _position = params.text_document_position.position;
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let mut items = Vec::new();
+
+        // Add all globals as completion items
+        for (_path, node) in world.globals.iter() {
+            let role_name = node.role_id().spec().name;
+            
+            let kind = match node.role_id() {
+                continuum_cdsl::ast::RoleId::Signal => CompletionItemKind::VARIABLE,
+                continuum_cdsl::ast::RoleId::Field => CompletionItemKind::PROPERTY,
+                continuum_cdsl::ast::RoleId::Operator => CompletionItemKind::METHOD,
+                continuum_cdsl::ast::RoleId::Impulse => CompletionItemKind::EVENT,
+                continuum_cdsl::ast::RoleId::Fracture => CompletionItemKind::EVENT,
+                continuum_cdsl::ast::RoleId::Chronicle => CompletionItemKind::CLASS,
+            };
+
+            let detail = if let Some(ref output) = node.output {
+                format!("{:?}", output) // TODO: proper Type formatting
+            } else {
+                role_name.to_string()
+            };
+
+            let documentation = node.doc.as_ref().map(|doc| {
+                Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: doc.clone(),
+                })
+            });
+
+            items.push(CompletionItem {
+                label: node.path.to_string(),
+                kind: Some(kind),
+                detail: Some(detail),
+                documentation,
+                ..Default::default()
+            });
+        }
+
+        // Add keywords
+        items.extend(vec![
+            completion_item("signal", CompletionItemKind::KEYWORD, "Signal declaration"),
+            completion_item("field", CompletionItemKind::KEYWORD, "Field declaration"),
+            completion_item("operator", CompletionItemKind::KEYWORD, "Operator declaration"),
+            completion_item("impulse", CompletionItemKind::KEYWORD, "Impulse declaration"),
+            completion_item("fracture", CompletionItemKind::KEYWORD, "Fracture declaration"),
+            completion_item("chronicle", CompletionItemKind::KEYWORD, "Chronicle declaration"),
+            completion_item("entity", CompletionItemKind::KEYWORD, "Entity declaration"),
+            completion_item("strata", CompletionItemKind::KEYWORD, "Strata declaration"),
+            completion_item("era", CompletionItemKind::KEYWORD, "Era declaration"),
+            completion_item("resolve", CompletionItemKind::KEYWORD, "Resolve block"),
+            completion_item("measure", CompletionItemKind::KEYWORD, "Measure block"),
+            completion_item("collect", CompletionItemKind::KEYWORD, "Collect block"),
+            completion_item("when", CompletionItemKind::KEYWORD, "When condition"),
+            completion_item("emit", CompletionItemKind::KEYWORD, "Emit block"),
+            completion_item("assert", CompletionItemKind::KEYWORD, "Assert block"),
+            completion_item("if", CompletionItemKind::KEYWORD, "Conditional"),
+            completion_item("else", CompletionItemKind::KEYWORD, "Else branch"),
+            completion_item("let", CompletionItemKind::KEYWORD, "Let binding"),
+            completion_item("prev", CompletionItemKind::VARIABLE, "Previous value"),
+            completion_item("dt", CompletionItemKind::VARIABLE, "Time delta"),
+            completion_item("collected", CompletionItemKind::VARIABLE, "Collected value"),
+        ]);
+
+        Ok(Some(CompletionResponse::Array(items)))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = &params.text_document.uri;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let mut symbols = Vec::new();
+
+        // Add all globals (signals, fields, operators, etc.)
+        for (_path, node) in world.globals.iter() {
+            let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
+            let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+
+            #[allow(deprecated)]
+            symbols.push(SymbolInformation {
+                name: node.path.to_string(),
+                kind: role_to_lsp_symbol_kind(node.role_id()),
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                },
+                container_name: None,
+            });
+        }
+
+        // Add all members
+        for (_path, node) in world.members.iter() {
+            let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
+            let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+
+            #[allow(deprecated)]
+            symbols.push(SymbolInformation {
+                name: format!("{} (member)", node.path),
+                kind: role_to_lsp_symbol_kind(node.role_id()),
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                },
+                container_name: None,
+            });
+        }
+
+        // Add entities
+        for (_path, entity) in world.entities.iter() {
+            let (start_line, start_char) = offset_to_position(&doc, entity.span.start as usize);
+            let (end_line, end_char) = offset_to_position(&doc, entity.span.end as usize);
+
+            #[allow(deprecated)]
+            symbols.push(SymbolInformation {
+                name: entity.path.to_string(),
+                kind: SymbolKind::CLASS,
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                },
+                container_name: Some("entity".to_string()),
+            });
+        }
+
+        Ok(Some(DocumentSymbolResponse::Flat(symbols)))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let offset = position_to_offset(&doc, position);
+        let mut locations = Vec::new();
+
+        // Find the symbol at cursor
+        for (_path, node) in world.globals.iter() {
+            if node.span.start as usize <= offset && offset <= node.span.end as usize {
+                // Found the symbol - return its definition location
+                let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
+                let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+
+                locations.push(Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                });
+
+                // TODO: Search for actual references in expressions
+                // This requires walking the AST expressions to find Path references
+                // For now, we just return the definition itself
+                break;
+            }
+        }
+
+        if locations.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(locations))
+        }
+    }
+
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
 
@@ -391,6 +603,29 @@ impl LanguageServer for Backend {
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+/// Helper to create completion items
+fn completion_item(label: &str, kind: CompletionItemKind, detail: &str) -> CompletionItem {
+    CompletionItem {
+        label: label.to_string(),
+        kind: Some(kind),
+        detail: Some(detail.to_string()),
+        ..Default::default()
+    }
+}
+
+/// Convert engine RoleId to LSP SymbolKind for protocol transport
+fn role_to_lsp_symbol_kind(role: continuum_cdsl::ast::RoleId) -> SymbolKind {
+    use continuum_cdsl::ast::RoleId;
+    match role {
+        RoleId::Signal => SymbolKind::VARIABLE,
+        RoleId::Field => SymbolKind::PROPERTY,
+        RoleId::Operator => SymbolKind::METHOD,
+        RoleId::Impulse => SymbolKind::EVENT,
+        RoleId::Fracture => SymbolKind::EVENT,
+        RoleId::Chronicle => SymbolKind::CLASS,
+    }
+}
 
 /// Format hover markdown from an engine Node
 fn format_hover_from_node<I: NodeIndex>(node: &Node<I>) -> Hover {
