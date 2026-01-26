@@ -1112,13 +1112,29 @@ impl<'a> ExecutionContext for VMContext<'a> {
 
         // Check if we're in entity context (member signal)
         if let Some(entity_ctx) = &self.entity_context {
-            // Member signals don't currently support input accumulation
-            panic!(
-                "Member signal input accumulation not implemented. Signal '{}' instance {} attempted to use LoadInputs. \
-                This feature requires per-instance input channels.",
+            // Member signal - load from per-instance input channels
+            if let Some(cached) = &self.cached_inputs {
+                return Ok(cached.clone());
+            }
+
+            let value = self.channels.drain_member_sum(
+                entity_ctx.entity_id,
+                entity_ctx.instance_index as u32,
                 entity_ctx.target_member,
-                entity_ctx.instance_index
             );
+
+            // Create the appropriate Value based on the signal type
+            let result = if value == 0.0 {
+                // If no inputs were accumulated, return typed zero
+                // For member signals, we'd need to look up the type from the member signal definition
+                // For now, just return scalar 0.0
+                Value::Scalar(0.0)
+            } else {
+                Value::Scalar(value)
+            };
+
+            self.cached_inputs = Some(result.clone());
+            return Ok(result);
         }
 
         // Global signal - load from input channels
@@ -1375,10 +1391,10 @@ impl<'a> ExecutionContext for VMContext<'a> {
 
     fn emit_member_signal(
         &mut self,
-        _entity: &EntityId,
-        _instance_idx: u32,
-        _member_path: &Path,
-        _value: Value,
+        entity: &EntityId,
+        instance_idx: u32,
+        member_path: &Path,
+        value: Value,
     ) -> std::result::Result<(), ExecutionError> {
         // Phase validation
         if self.phase != Phase::Collect && self.phase != Phase::Fracture {
@@ -1388,14 +1404,34 @@ impl<'a> ExecutionContext for VMContext<'a> {
             });
         }
 
-        // TODO: Implement per-instance input accumulation storage
-        // This requires adding member_signal_inputs: IndexMap<(EntityId, u32, Path), Vec<f64>>
-        // to InputChannels or a new storage structure.
-        panic!(
-            "Member signal input accumulation not yet implemented. \
-             This requires per-instance input channel storage. \
-             Issue: continuum-gn13 Phase 4"
-        );
+        // Extract scalar value (only scalars supported for now, like regular signals)
+        let val = value
+            .as_scalar()
+            .ok_or_else(|| ExecutionError::InvalidOperand {
+                message: "Only scalar member signals supported for emit for now".to_string(),
+            })?;
+
+        // Get instance count for bounds checking
+        let full_signal_path = member_path.to_string();
+        let instance_count = self
+            .member_signals
+            .instance_count_for_signal(&full_signal_path);
+
+        // Bounds check the instance index
+        if instance_idx >= instance_count as u32 {
+            return Err(ExecutionError::InvalidOperand {
+                message: format!(
+                    "Instance index {} out of bounds for entity {} (has {} instances)",
+                    instance_idx, entity, instance_count
+                ),
+            });
+        }
+
+        // Accumulate to per-instance input channel
+        self.channels
+            .accumulate_member(entity, instance_idx, member_path, val);
+
+        Ok(())
     }
 
     fn emit_field(

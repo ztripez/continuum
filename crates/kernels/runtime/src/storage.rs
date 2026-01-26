@@ -26,6 +26,7 @@ use indexmap::IndexMap;
 
 use crate::types::{EntityId, FieldId, InstanceId, SignalId, Value};
 pub use continuum_foundation::FieldSample;
+use continuum_foundation::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -138,12 +139,48 @@ impl SignalStorage {
 pub struct InputChannels {
     /// Accumulated inputs per signal
     channels: IndexMap<SignalId, Vec<f64>>,
+    /// Accumulated inputs per member signal instance: (entity_id, instance_idx, member_path) -> values
+    member_channels: IndexMap<(EntityId, u32, Path), Vec<f64>>,
 }
 
 impl InputChannels {
     /// Accumulate an input value for a signal.
     pub fn accumulate(&mut self, id: &SignalId, value: f64) {
         self.channels.entry(id.clone()).or_default().push(value);
+    }
+
+    /// Accumulate an input value for a specific member signal instance.
+    ///
+    /// # Parameters
+    /// - `entity`: Entity type identifier (e.g., "terra.plate")
+    /// - `instance_idx`: Instance index (0..N)
+    /// - `member_path`: Full member signal path (e.g., "terra.plate.omega")
+    /// - `value`: Value to accumulate
+    pub fn accumulate_member(
+        &mut self,
+        entity: &EntityId,
+        instance_idx: u32,
+        member_path: &Path,
+        value: f64,
+    ) {
+        let key = (entity.clone(), instance_idx, member_path.clone());
+        self.member_channels.entry(key).or_default().push(value);
+    }
+
+    /// Sum all accumulated values for a member signal instance and remove them.
+    ///
+    /// Returns 0.0 if no values were accumulated.
+    pub fn drain_member_sum(
+        &mut self,
+        entity: &EntityId,
+        instance_idx: u32,
+        member_path: &Path,
+    ) -> f64 {
+        let key = (entity.clone(), instance_idx, member_path.clone());
+        self.member_channels
+            .shift_remove(&key)
+            .map(|values| values.iter().sum())
+            .unwrap_or(0.0)
     }
 
     /// Sum all accumulated values for a signal and remove them from the channels.
