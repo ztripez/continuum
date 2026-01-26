@@ -532,6 +532,15 @@ impl Runtime {
     }
 
     /// Execute Configure phase: Initialize tick context and run Configure DAG
+    ///
+    /// Configure phase is primarily engine-internal. It:
+    /// 1. Creates the tick context (tick number, sim_time, dt, era)
+    /// 2. Executes signal `:initial(...)` blocks for stateful signals
+    /// 3. Commits member signal initial values (current → previous buffers)
+    /// 4. Validates all Resolve DAG signals are initialized
+    ///
+    /// Most simulation logic should use other phases (Collect, Resolve, Fracture, Measure).
+    /// See docs/execution/phases.md § 1 for details.
     fn execute_configure_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
         trace!("phase: configure");
         self.active_tick_ctx = Some(TickContext {
@@ -541,7 +550,7 @@ impl Runtime {
             era: self.current_era.clone(),
         });
         
-        // Execute Configure phase DAG (initial blocks)
+        // Execute Configure phase DAG (signal :initial(...) blocks)
         if self.has_bytecode() {
             self.bytecode_executor.execute_configure(
                 &self.current_era,

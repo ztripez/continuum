@@ -133,7 +133,12 @@ impl BytecodePhaseExecutor {
         }
     }
 
-    /// Execute the Configure phase (initial blocks)
+    /// Execute the Configure phase (signal :initial(...) blocks)
+    ///
+    /// Configure phase is engine-internal and executes signal initialization blocks.
+    /// Most user DSL logic belongs in other phases (Collect, Resolve, Fracture, Measure).
+    ///
+    /// See docs/execution/phases.md § 1 for semantics and usage guidance.
     #[instrument(skip_all, name = "configure")]
     pub fn execute_configure(
         &mut self,
