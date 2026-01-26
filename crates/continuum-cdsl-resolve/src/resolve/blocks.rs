@@ -22,8 +22,8 @@
 
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::dependencies::{extract_dependencies, extract_stmt_dependencies};
-use crate::resolve::effects::{EffectContext, validate_effect_purity};
-use crate::resolve::expr_typing::{TypingContext, type_expression};
+use crate::resolve::effects::{validate_effect_purity, EffectContext};
+use crate::resolve::expr_typing::{type_expression, TypingContext};
 use crate::resolve::utils::sort_unique;
 use continuum_cdsl_ast::foundation::Phase;
 use continuum_cdsl_ast::{
@@ -97,6 +97,53 @@ use std::collections::HashSet;
 /// let typed = compile_statements(&stmts, &ctx).unwrap();
 /// assert_eq!(typed.len(), 1);
 /// ```
+
+/// Validates that an assignment statement is allowed in the current phase.
+///
+/// Returns `None` if validation passes, or `Some(CompileError)` if the assignment
+/// violates phase boundary constraints.
+///
+/// # Parameters
+/// - `phase`: Current execution phase (if known)
+/// - `allowed_phases`: Slice of phases where this assignment type is valid
+/// - `target_type`: Human-readable name of what's being assigned (e.g., "signal", "field")
+/// - `target_name`: Name of the specific target being assigned
+/// - `span`: Source location for error reporting
+fn validate_assignment_phase(
+    phase: Option<Phase>,
+    allowed_phases: &[Phase],
+    target_type: &str,
+    target_name: &str,
+    span: continuum_cdsl_ast::Span,
+) -> Option<CompileError> {
+    if let Some(current_phase) = phase {
+        if !allowed_phases.contains(&current_phase) {
+            let allowed_str = if allowed_phases.len() == 1 {
+                format!("{:?} phase", allowed_phases[0])
+            } else {
+                format!(
+                    "{} phases",
+                    allowed_phases
+                        .iter()
+                        .map(|p| format!("{:?}", p))
+                        .collect::<Vec<_>>()
+                        .join(" or ")
+                )
+            };
+
+            return Some(CompileError::new(
+                ErrorKind::PhaseBoundaryViolation,
+                span,
+                format!(
+                    "{} '{}' cannot be assigned in {:?} phase (only allowed in {})",
+                    target_type, target_name, current_phase, allowed_str
+                ),
+            ));
+        }
+    }
+    None
+}
+
 pub fn compile_statements(
     stmts: &[Stmt<Expr>],
     ctx: &TypingContext,
@@ -126,18 +173,14 @@ pub fn compile_statements(
                 span,
             } => {
                 // Phase boundary enforcement: Signals in Collect or Fracture phase
-                if let Some(phase) = current_ctx.phase
-                    && phase != Phase::Collect
-                    && phase != Phase::Fracture
-                {
-                    errors.push(CompileError::new(
-                        ErrorKind::PhaseBoundaryViolation,
-                        *span,
-                        format!(
-                            "signal '{}' cannot be assigned in {:?} phase (signals are only assignable in Collect or Fracture phases)",
-                            target, phase
-                        ),
-                    ));
+                if let Some(err) = validate_assignment_phase(
+                    current_ctx.phase,
+                    &[Phase::Collect, Phase::Fracture],
+                    "signal",
+                    &target.to_string(),
+                    *span,
+                ) {
+                    errors.push(err);
                 }
 
                 match type_expression(value, &current_ctx, None) {
@@ -179,18 +222,14 @@ pub fn compile_statements(
                 span,
             } => {
                 // Phase boundary: member signal assignment only in Collect or Fracture
-                if let Some(phase) = current_ctx.phase
-                    && phase != Phase::Collect
-                    && phase != Phase::Fracture
-                {
-                    errors.push(CompileError::new(
-                        ErrorKind::PhaseBoundaryViolation,
-                        *span,
-                        format!(
-                            "member signal assignment not allowed in {:?} phase (only Collect or Fracture)",
-                            phase
-                        ),
-                    ));
+                if let Some(err) = validate_assignment_phase(
+                    current_ctx.phase,
+                    &[Phase::Collect, Phase::Fracture],
+                    "member signal",
+                    &format!("{}.{}", entity, member),
+                    *span,
+                ) {
+                    errors.push(err);
                 }
 
                 // Type the instance and value expressions
@@ -224,17 +263,14 @@ pub fn compile_statements(
                 span,
             } => {
                 // Phase boundary enforcement: Fields only in Measure phase
-                if let Some(phase) = current_ctx.phase
-                    && phase != Phase::Measure
-                {
-                    errors.push(CompileError::new(
-                        ErrorKind::PhaseBoundaryViolation,
-                        *span,
-                        format!(
-                            "field '{}' cannot be assigned in {:?} phase (fields are only assignable in Measure phase)",
-                            target, phase
-                        ),
-                    ));
+                if let Some(err) = validate_assignment_phase(
+                    current_ctx.phase,
+                    &[Phase::Measure],
+                    "field",
+                    &target.to_string(),
+                    *span,
+                ) {
+                    errors.push(err);
                 }
 
                 let typed_pos = type_expression(position, &current_ctx, None);
@@ -313,7 +349,7 @@ pub fn compile_statements(
                         Err(mut e) => errors.append(&mut e),
                     }
                 }
-                
+
                 typed_stmts.push(TypedStmt::EmitEvent {
                     path: path.clone(),
                     fields: typed_fields,
@@ -691,20 +727,20 @@ pub fn compile_execution_blocks<I: Index>(
     let mut executions = Vec::new();
 
     let role_id = node.role.id();
-    
+
     // For signals, inputs accumulate as the signal's own type
     let inputs_type = if role_id == RoleId::Signal {
         node.output.clone()
     } else {
         None
     };
-    
+
     // For impulses, extract payload type from role data
     let payload_type = match &node.role {
         RoleData::Impulse { payload } => payload.clone(),
         _ => None,
     };
-    
+
     // Preserve existing self_type from ctx (set for member nodes in pipeline)
     // while setting up node-specific context (output, inputs, etc)
     let base_ctx = ctx.with_execution_context(
@@ -1122,11 +1158,9 @@ mod tests {
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
-        assert!(
-            errors[0]
-                .message
-                .contains("target signal 'signal.target' has type")
-        );
+        assert!(errors[0]
+            .message
+            .contains("target signal 'signal.target' has type"));
     }
 
     #[test]
@@ -1168,11 +1202,9 @@ mod tests {
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::UndefinedName);
-        assert!(
-            errors[0]
-                .message
-                .contains("signal 'signal.missing' not found")
-        );
+        assert!(errors[0]
+            .message
+            .contains("signal 'signal.missing' not found"));
     }
 
     #[test]
@@ -1201,7 +1233,7 @@ mod tests {
             node_output: None,
             inputs_type: None,
             payload_type: None,
-            phase: Some(Phase::Resolve),  // Signal assignment is invalid in Resolve phase
+            phase: Some(Phase::Resolve), // Signal assignment is invalid in Resolve phase
         };
 
         let span = test_span();
@@ -1216,11 +1248,9 @@ mod tests {
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::PhaseBoundaryViolation);
-        assert!(
-            errors[0]
-                .message
-                .contains("cannot be assigned in Resolve phase")
-        );
+        assert!(errors[0]
+            .message
+            .contains("cannot be assigned in Resolve phase"));
     }
 
     #[test]
@@ -1412,8 +1442,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_with_typed_expression() {
-        use continuum_cdsl_ast::RoleData;
         use continuum_cdsl_ast::foundation::{KernelType, Shape, Unit};
+        use continuum_cdsl_ast::RoleData;
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1487,8 +1517,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_populates_node_reads() {
-        use continuum_cdsl_ast::RoleData;
         use continuum_cdsl_ast::foundation::{KernelType, Shape, Unit};
+        use continuum_cdsl_ast::RoleData;
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1537,8 +1567,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_union_multiple_blocks() {
-        use continuum_cdsl_ast::RoleData;
         use continuum_cdsl_ast::foundation::{KernelType, Shape, Unit};
+        use continuum_cdsl_ast::RoleData;
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1925,10 +1955,10 @@ mod tests {
         let const_expr = TypedExpr::new(ExprKind::Const(const_path.clone()), ty, span);
 
         let (deps_config, _) = extract_dependencies(&config_expr, &Path::from_path_str("test"));
-        assert_eq!(deps_config.len(), 0);  // Config not tracked as dependency
+        assert_eq!(deps_config.len(), 0); // Config not tracked as dependency
 
         let (deps_const, _) = extract_dependencies(&const_expr, &Path::from_path_str("test"));
-        assert_eq!(deps_const.len(), 0);  // Const not tracked as dependency
+        assert_eq!(deps_const.len(), 0); // Const not tracked as dependency
     }
 
     #[test]
