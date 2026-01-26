@@ -68,8 +68,8 @@ pub use continuum_cdsl_resolve::*;
 pub mod compile;
 
 pub use compile::{
-    compile, compile_with_sources, deserialize_world, format_errors, serialize_world,
-    CompileResultWithSources,
+    compile, compile_from_memory, compile_with_sources, deserialize_world, format_errors,
+    serialize_world, CompileResultWithSources,
 };
 
 // Version info

@@ -678,8 +678,8 @@ fn test_svd_mat4_reconstruction() {
     for col in 0..4 {
         for row in 0..4 {
             // A[col][row] = sum_k U[k][row] * s[k] * V^T[col][k]
-            for k in 0..4 {
-                reconstructed[col * 4 + row] += u.0[k * 4 + row] * s[k] * vt.0[col * 4 + k];
+            for (k, &s_k) in s.iter().enumerate() {
+                reconstructed[col * 4 + row] += u.0[k * 4 + row] * s_k * vt.0[col * 4 + k];
             }
         }
     }
@@ -847,7 +847,7 @@ fn test_translation_basic() {
     assert_eq!(m.0[13], 20.0); // ty
     assert_eq!(m.0[14], 30.0); // tz
     assert_eq!(m.0[15], 1.0); // w
-    // Identity in upper-left 3x3
+                              // Identity in upper-left 3x3
     assert_eq!(m.0[0], 1.0);
     assert_eq!(m.0[5], 1.0);
     assert_eq!(m.0[10], 1.0);

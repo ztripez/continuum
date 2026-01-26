@@ -14,7 +14,9 @@ use indexmap::IndexMap;
 // Current: Defined in dag.rs, re-exported here
 // Issue: DagSet is execution-specific but lives in AST crate
 // Plan: Make DagSet generic over node ID types, move to foundation
-pub use super::dag::{DagSet, ExecutionDag, ExecutionLevel};
+pub use super::dag::DagSet;
+#[allow(unused_imports)] // May be used by external consumers
+pub use super::dag::{ExecutionDag, ExecutionLevel};
 
 /// A compiled and resolved Continuum world.
 ///

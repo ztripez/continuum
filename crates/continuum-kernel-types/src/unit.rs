@@ -952,11 +952,7 @@ fn format_dim(symbol: &str, exponent: Rational) -> String {
         format!("{}^{}", symbol, exponent.num)
     } else {
         // Fractional exponent: use parentheses for clarity
-        if exponent.num < 0 {
-            format!("{}^({}/{})", symbol, exponent.num, exponent.denom)
-        } else {
-            format!("{}^({}/{})", symbol, exponent.num, exponent.denom)
-        }
+        format!("{}^({}/{})", symbol, exponent.num, exponent.denom)
     }
 }
 

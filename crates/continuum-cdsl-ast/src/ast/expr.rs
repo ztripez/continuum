@@ -182,6 +182,8 @@
 
 use crate::foundation::{AggregateOp, Path, Span, Type, UserTypeId};
 use continuum_kernel_types::KernelId;
+// Imported for derive macros used throughout this file
+#[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
 
 use crate::foundation::EntityId;
