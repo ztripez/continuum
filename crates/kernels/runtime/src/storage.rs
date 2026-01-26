@@ -169,7 +169,36 @@ impl InputChannels {
 
     /// Sum all accumulated values for a member signal instance and remove them.
     ///
-    /// Returns 0.0 if no values were accumulated.
+    /// Returns the sum of all values emitted to this specific instance's member signal
+    /// during the current tick's Collect phase, then clears the accumulator.
+    ///
+    /// # Returns
+    ///
+    /// - Sum of accumulated values if any emissions occurred
+    /// - `0.0` if no emissions occurred (semantically correct: zero inputs = zero contribution)
+    ///
+    /// # Semantic Correctness
+    ///
+    /// Returning `0.0` for no inputs is **intentionally not an error**:
+    /// - Member signals with no inputs have zero contribution to their resolution
+    /// - This matches the behavior of global signals ([`drain_sum`])
+    /// - The additive identity (0.0) is the correct default for sum accumulation
+    ///
+    /// Invalid instance indices are caught by bounds checking in
+    /// [`ExecutionContext::emit_member_signal`], not here.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // During Collect phase:
+    /// channels.accumulate_member(&entity, 0, &path, 1.5);
+    /// channels.accumulate_member(&entity, 0, &path, 2.0);
+    /// // No emissions to instance 1
+    ///
+    /// // During Resolve phase:
+    /// let sum0 = channels.drain_member_sum(&entity, 0, &path); // Returns 3.5
+    /// let sum1 = channels.drain_member_sum(&entity, 1, &path); // Returns 0.0 (correct)
+    /// ```
     pub fn drain_member_sum(
         &mut self,
         entity: &EntityId,
