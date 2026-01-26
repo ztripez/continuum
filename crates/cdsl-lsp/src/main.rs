@@ -21,7 +21,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use walkdir::WalkDir;
 
 // Engine types - pure transport layer (no custom shadow structures)
-use continuum_cdsl::ast::World;
+use continuum_cdsl::ast::{Index as NodeIndex, Node, World};
 use continuum_cdsl::{compile_from_memory};
 
 /// Semantic token types for syntax highlighting.
@@ -190,10 +190,10 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
                 // TODO: Re-enable as handlers are implemented
                 // completion_provider: Some(CompletionOptions { ... }),
-                // definition_provider: Some(OneOf::Left(true)),
-                // hover_provider: Some(HoverProviderCapability::Simple(true)),
                 // ... etc
                 ..Default::default()
             },
@@ -253,6 +253,112 @@ impl LanguageServer for Backend {
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
 
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let offset = position_to_offset(&doc, position);
+
+        // Search globals
+        for (_path, node) in world.globals.iter() {
+            if node.span.start as usize <= offset && offset <= node.span.end as usize {
+                let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
+                let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+
+                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                })));
+            }
+        }
+
+        // Search members
+        for (_path, node) in world.members.iter() {
+            if node.span.start as usize <= offset && offset <= node.span.end as usize {
+                let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
+                let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+
+                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                })));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let offset = position_to_offset(&doc, position);
+
+        // Search globals (signals, fields, operators, etc.)
+        for (_path, node) in world.globals.iter() {
+            if node.span.start as usize <= offset && offset <= node.span.end as usize {
+                return Ok(Some(format_hover_from_node(node)));
+            }
+        }
+
+        // Search members (per-entity primitives)
+        for (_path, node) in world.members.iter() {
+            if node.span.start as usize <= offset && offset <= node.span.end as usize {
+                return Ok(Some(format_hover_from_node(node)));
+            }
+        }
+
+        // Search entities
+        for (_path, entity) in world.entities.iter() {
+            if entity.span.start as usize <= offset && offset <= entity.span.end as usize {
+                let mut parts = Vec::new();
+                parts.push(format!("Entity: `{}`", entity.path));
+                if let Some(ref doc) = entity.doc {
+                    parts.push(doc.clone());
+                }
+                
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: parts.join("\n\n"),
+                    }),
+                    range: None,
+                }));
+            }
+        }
+
+        Ok(None)
+    }
+
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
 
@@ -285,6 +391,38 @@ impl LanguageServer for Backend {
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+/// Format hover markdown from an engine Node
+fn format_hover_from_node<I: NodeIndex>(node: &Node<I>) -> Hover {
+    let mut parts = Vec::new();
+
+    // Title (if present)
+    if let Some(ref title) = node.title {
+        parts.push(format!("**{}**", title));
+    }
+
+    // Role and path
+    let role_name = node.role_id().spec().name;
+    parts.push(format!("{}: `{}`", role_name, node.path));
+
+    // Type (if resolved)
+    if let Some(ref output) = node.output {
+        parts.push(format!("Type: `{:?}`", output)); // TODO: proper Type formatting
+    }
+
+    // Documentation
+    if let Some(ref doc) = node.doc {
+        parts.push(doc.clone());
+    }
+
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: parts.join("\n\n"),
+        }),
+        range: None,
+    }
+}
 
 fn offset_to_position(text: &str, offset: usize) -> (u32, u32) {
     let mut line = 0;
