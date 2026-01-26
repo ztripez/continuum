@@ -1,9 +1,13 @@
 {
+  "$schema": "https://opencode.ai/config.json",
   "lsp": {
     "cdsl": {
-      "enabled": true,
-      "command": ["./target/release/cdsl-lsp"],
-      "filetypes": [".cdsl"],
+      "command": [
+        "./target/release/cdsl-lsp"
+      ],
+      "extensions": [
+        ".cdsl"
+      ],
       "env": {
         "RUST_LOG": "info"
       }
