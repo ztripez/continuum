@@ -757,7 +757,7 @@ pub(crate) fn handle_emit_member(
     let value = runtime.pop()?;
     let instance_val = runtime.pop()?;
 
-    // Extract instance index as u32
+    // Extract instance index as u32 (only Integer allowed)
     let instance_idx = match instance_val {
         Value::Integer(idx) => {
             if idx < 0 {
@@ -767,17 +767,9 @@ pub(crate) fn handle_emit_member(
             }
             idx as u32
         }
-        Value::Scalar(idx) => {
-            if idx < 0.0 || idx.fract() != 0.0 {
-                return Err(ExecutionError::InvalidOperand {
-                    message: format!("Instance index must be a non-negative integer, got {}", idx),
-                });
-            }
-            idx as u32
-        }
         _ => {
             return Err(ExecutionError::TypeMismatch {
-                expected: "Integer or Scalar instance index".to_string(),
+                expected: "Integer instance index".to_string(),
                 found: format!("{:?}", instance_val),
             });
         }
