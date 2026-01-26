@@ -198,6 +198,21 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 references_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: SemanticTokensLegend {
+                                token_types: SEMANTIC_TOKEN_TYPES.to_vec(),
+                                token_modifiers: SEMANTIC_TOKEN_MODIFIERS.to_vec(),
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                            ..Default::default()
+                        },
+                    ),
+                ),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 // TODO: Re-enable as handlers are implemented
                 // ... etc
                 ..Default::default()
@@ -569,6 +584,226 @@ impl LanguageServer for Backend {
         } else {
             Ok(Some(locations))
         }
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = &params.text_document.uri;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let mut tokens: Vec<(usize, usize, u32)> = Vec::new(); // (start, length, token_type)
+
+        // Token type indices (must match SEMANTIC_TOKEN_TYPES order)
+        // 0: signal, 1: field, 2: operator, 3: function, 4: type,
+        // 5: strata, 6: era, 7: impulse, 8: fracture, 9: chronicle, 10: entity, 11: keyword
+
+        // Add tokens for all globals
+        for (_path, node) in world.globals.iter() {
+            let token_type = match node.role_id() {
+                continuum_cdsl::ast::RoleId::Signal => 0,
+                continuum_cdsl::ast::RoleId::Field => 1,
+                continuum_cdsl::ast::RoleId::Operator => 2,
+                continuum_cdsl::ast::RoleId::Impulse => 7,
+                continuum_cdsl::ast::RoleId::Fracture => 8,
+                continuum_cdsl::ast::RoleId::Chronicle => 9,
+            };
+
+            tokens.push((
+                node.span.start as usize,
+                (node.span.end - node.span.start) as usize,
+                token_type,
+            ));
+        }
+
+        // Add tokens for entities
+        for (_path, entity) in world.entities.iter() {
+            tokens.push((
+                entity.span.start as usize,
+                (entity.span.end - entity.span.start) as usize,
+                10, // entity
+            ));
+        }
+
+        // Sort by position
+        tokens.sort_by_key(|t| t.0);
+
+        // Convert to LSP semantic tokens format (delta encoding)
+        let mut data = Vec::new();
+        let mut last_line = 0;
+        let mut last_start = 0;
+
+        for (start, len, token_type) in tokens {
+            let (line, col) = offset_to_position(&doc, start);
+            let delta_line = line - last_line;
+            let delta_start = if delta_line == 0 {
+                col - last_start
+            } else {
+                col
+            };
+
+            data.push(SemanticToken {
+                delta_line,
+                delta_start,
+                length: len as u32,
+                token_type,
+                token_modifiers_bitset: 0,
+            });
+
+            last_line = line;
+            last_start = col;
+        }
+
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data,
+        })))
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let query = params.query.to_lowercase();
+        let mut results = Vec::new();
+
+        // Search all indexed worlds
+        for entry in self.worlds.iter() {
+            let uri = entry.key().clone();
+            let world = entry.value();
+
+            let doc = match self.documents.get(&uri) {
+                Some(doc) => doc.clone(),
+                None => continue,
+            };
+
+            // Search globals
+            for (_path, node) in world.globals.iter() {
+                let path_str = node.path.to_string().to_lowercase();
+                if query.is_empty() || path_str.contains(&query) {
+                    let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
+                    let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+
+                    #[allow(deprecated)]
+                    results.push(SymbolInformation {
+                        name: node.path.to_string(),
+                        kind: role_to_lsp_symbol_kind(node.role_id()),
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: uri.clone(),
+                            range: Range {
+                                start: Position::new(start_line, start_char),
+                                end: Position::new(end_line, end_char),
+                            },
+                        },
+                        container_name: Some(node.role_id().spec().name.to_string()),
+                    });
+                }
+            }
+
+            // Search entities
+            for (_path, entity) in world.entities.iter() {
+                let path_str = entity.path.to_string().to_lowercase();
+                if query.is_empty() || path_str.contains(&query) {
+                    let (start_line, start_char) = offset_to_position(&doc, entity.span.start as usize);
+                    let (end_line, end_char) = offset_to_position(&doc, entity.span.end as usize);
+
+                    #[allow(deprecated)]
+                    results.push(SymbolInformation {
+                        name: entity.path.to_string(),
+                        kind: SymbolKind::CLASS,
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: uri.clone(),
+                            range: Range {
+                                start: Position::new(start_line, start_char),
+                                end: Position::new(end_line, end_char),
+                            },
+                        },
+                        container_name: Some("entity".to_string()),
+                    });
+                }
+            }
+        }
+
+        // Sort by relevance (exact prefix matches first)
+        results.sort_by(|a, b| {
+            let a_starts = a.name.to_lowercase().starts_with(&query);
+            let b_starts = b.name.to_lowercase().starts_with(&query);
+            match (a_starts, b_starts) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.len().cmp(&b.name.len()),
+            }
+        });
+
+        results.truncate(100); // Limit results
+
+        Ok(Some(results))
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = &params.text_document.uri;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let mut ranges = Vec::new();
+
+        // Create folding ranges for all globals
+        for (_path, node) in world.globals.iter() {
+            let (start_line, _) = offset_to_position(&doc, node.span.start as usize);
+            let (end_line, _) = offset_to_position(&doc, node.span.end as usize);
+
+            if end_line > start_line {
+                ranges.push(FoldingRange {
+                    start_line,
+                    start_character: None,
+                    end_line,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region),
+                    collapsed_text: None,
+                });
+            }
+        }
+
+        // Create folding ranges for entities
+        for (_path, entity) in world.entities.iter() {
+            let (start_line, _) = offset_to_position(&doc, entity.span.start as usize);
+            let (end_line, _) = offset_to_position(&doc, entity.span.end as usize);
+
+            if end_line > start_line {
+                ranges.push(FoldingRange {
+                    start_line,
+                    start_character: None,
+                    end_line,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region),
+                    collapsed_text: None,
+                });
+            }
+        }
+
+        Ok(Some(ranges))
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
