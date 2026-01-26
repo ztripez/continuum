@@ -139,6 +139,7 @@ signal atmosphere.external_power {
 signal atmosphere.surface_temp {
     : Vec3<K>
     : stratum(atmosphere)
+    : initial(vector.vec3(288.0, 308.0, 248.0))
     : title("Surface Temperature")
     : symbol("T_surf")
 
@@ -150,12 +151,6 @@ signal atmosphere.surface_temp {
         relaxation_tau_s: 3.15e10
         # Initial temperature (Earth mean)
         initial_temp: 288.0
-    }
-
-    # Initial value: Earth-like temperatures [mean, equator, pole]
-    initial {
-        # Simple test: use literal values for now
-        vector.vec3(288.0, 308.0, 248.0)
     }
 
     resolve {

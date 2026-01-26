@@ -97,76 +97,77 @@ entity stellar.star {
 
     signal mass {
         : Scalar<kg, 1e28..1e32>
+        : initial(1.989e30)
         : stratum(orbit)
         : title("Star Mass")
         : symbol("M_star")
     
-        initial { config.stellar.default_star_mass }
         resolve { prev }
     }
 
     signal radius {
         : Scalar<m, 1e8..1e10>
+        : initial(6.9634e8)
         : stratum(orbit)
         : title("Star Radius")
         : symbol("R_star")
     
-        initial { config.stellar.default_star_radius }
         resolve { prev }
     }
 
     signal luminosity_base {
         : Scalar<W, 1e24..1e30>
+        : initial(3.828e26)
         : stratum(orbit)
         : title("Base Luminosity")
         : symbol("L_base")
     
-        initial { config.stellar.default_luminosity }
         resolve { prev }
     }
 
     signal teff {
         : Scalar<K, 2000..50000>
+        : initial(5780.0)
         : stratum(orbit)
         : title("Effective Temperature")
         : symbol("T_eff")
     
-        initial { config.stellar.default_teff }
         resolve { prev }
     }
 
     signal luminosity_evolution_rate {
         : Scalar<1/Myr, 0..1e-3>
+        : initial(1e-4)
         : stratum(orbit)
         : title("Luminosity Evolution Rate")
         : symbol("dL/dt")
     
-        initial { const.stellar.main_sequence_evolution_rate }
         resolve { prev }
     }
 
     signal orbit_radius {
         : Scalar<m, 0..1e14>
+        : initial(0.0)
         : stratum(orbit)
         : title("Orbit Semi-major Axis")
         : symbol("a_star")
     
-        initial { 0.0 }
         resolve { prev }
     }
 
     signal orbit_eccentricity {
         : Scalar<1, 0..0.99>
+        : initial(0.0)
         : stratum(orbit)
         : title("Orbit Eccentricity")
         : symbol("e_star")
     
-        initial { 0.0 }
         resolve { prev }
     }
 
     signal orbit_phase {
         : Scalar<rad, 0..TAU>
+        : initial(0.0)
         : stratum(orbit)
         : title("Orbit Phase")
         : symbol("phi_star")
@@ -183,11 +184,11 @@ entity stellar.star {
 
     signal orbit_inclination {
         : Scalar<rad, 0..PI>
+        : initial(0.0)
         : stratum(orbit)
         : title("Orbit Inclination")
         : symbol("i_star")
     
-        initial { 0.0 }
         resolve { prev }
     }
 
@@ -240,51 +241,50 @@ entity stellar.star {
 
     signal rotation_period {
         : Scalar<day, 0.1..100>
+        : initial(25.0)
         : stratum(activity)
         : title("Rotation Period")
         : symbol("P_rot")
     
-        initial { config.stellar.default_rotation_period_days }
         resolve { prev }
     }
 
     signal spot_amplitude {
         : Scalar<1, 0..0.1>
+        : initial(0.001)
         : stratum(activity)
         : title("Starspot Amplitude")
         : symbol("A_spot")
     
-        initial { config.stellar.default_spot_amplitude }
         resolve { prev }
     }
 
     signal activity_cycle_period {
         : Scalar<yr, 1..100>
+        : initial(11.0)
         : stratum(activity)
         : title("Activity Cycle Period")
         : symbol("P_cycle")
     
-        initial { config.stellar.default_activity_cycle_years }
         resolve { prev }
     }
 
     signal flare_rate {
         : Scalar<1/day, 0..10>
+        : initial(0.0)
         : stratum(activity)
         : title("Flare Rate")
         : symbol("R_flare")
     
-        initial { config.stellar.default_flare_rate_per_day }
         resolve { prev }
     }
 
     signal variability_factor {
         : Scalar<1, 0.5..2.0>
+        : initial(1.0)
         : stratum(orbit)  # Must be in orbit stratum so it's computed before luminosity
         : title("Luminosity Variability Factor")
         : symbol("f_var")
-    
-        initial { config.stellar.default_variability_factor }
     
         resolve {
             # TODO: Rotational modulation and activity cycles require sim.time
@@ -390,31 +390,31 @@ entity stellar.moon {
 
     signal mass {
         : Scalar<kg, 1e15..1e24>
+        : initial(7.342e22)
         : stratum(orbit)
         : title("Moon Mass")
         : symbol("M_moon")
     
-        initial { config.stellar.default_moon_mass }
         resolve { prev }
     }
 
     signal radius {
         : Scalar<m, 1e3..1e7>
+        : initial(1.737e6)
         : stratum(orbit)
         : title("Moon Radius")
         : symbol("R_moon")
     
-        initial { config.stellar.default_moon_radius }
         resolve { prev }
     }
 
     signal orbit_radius {
         : Scalar<m, 1e6..1e10>
+        : initial(3.844e8)
         : stratum(orbit)
         : title("Orbit Semi-major Axis")
         : symbol("a_moon")
     
-        initial { config.stellar.default_moon_orbit_radius }
         resolve {
             # Apply tidal recession if configured
             # Use dt.integrate to properly handle prev (m) + rate (m/s) * dt (s) = m
@@ -424,16 +424,17 @@ entity stellar.moon {
 
     signal orbit_eccentricity {
         : Scalar<1, 0..0.5>
+        : initial(0.0549)
         : stratum(orbit)
         : title("Orbit Eccentricity")
         : symbol("e_moon")
     
-        initial { 0.0549 }
         resolve { prev }
     }
 
     signal orbit_phase {
         : Scalar<rad, 0..TAU>
+        : initial(0.0)
         : stratum(orbit)
         : title("Orbit Phase")
         : symbol("phi_moon")
@@ -451,21 +452,21 @@ entity stellar.moon {
 
     signal orbit_inclination {
         : Scalar<rad, 0..PI>
+        : initial(0.0898)
         : stratum(orbit)
         : title("Orbit Inclination")
         : symbol("i_moon")
     
-        initial { 0.0898 }
         resolve { prev }
     }
 
     signal tidal_recession_rate {
         : Scalar<m/s, 0..1e-6>
+        : initial(0.0)
         : stratum(orbit)
         : title("Tidal Recession Rate")
         : symbol("dr/dt")
     
-        initial { 0.0 }
         resolve { prev }
     }
 

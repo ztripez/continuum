@@ -213,7 +213,6 @@ signal hydrology.evaporation_rate {
 signal hydrology.precipitation_rate {
     : Scalar<kg/m²/s, 0..1e-2>
     : initial(0.0)
-    : initial(0.0)
     : uses(maths.clamping)
     : stratum(hydrology)
     : title("Precipitation Rate")
