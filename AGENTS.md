@@ -399,6 +399,41 @@ When in doubt:
 
 > **Make it explicit, typed, schedulable, and observable.**
 
+## Build and Quality Gates
+
+**CRITICAL:** Standard `cargo build` does NOT enforce all quality gates.
+
+### Required Build Command
+
+```bash
+cargo check-all
+```
+
+This alias runs clippy with all workspace lints, including:
+- **`unwrap_used = "deny"`** - Catches all `.unwrap()` calls (violates fail-loudly principle)
+- All other clippy lints configured in workspace
+
+### Why This Matters
+
+`cargo build` compiles successfully with `.unwrap()` calls, but they violate the **Fail Loudly** principle:
+- `.unwrap()` panics with generic "called unwrap() on None" messages
+- Proper error handling surfaces structured, actionable errors
+- Clippy enforcement catches these at compile time
+
+### Development Workflow
+
+```bash
+# During development (fast, catches clippy issues)
+cargo check-all
+
+# Before commit (full validation)
+cargo check-all && cargo test --workspace
+
+# CI/pre-commit hooks should enforce cargo check-all
+```
+
+**Never bypass clippy.** If `cargo check-all` fails, fix the issues—don't use `cargo build` to skip validation.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

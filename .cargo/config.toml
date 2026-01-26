@@ -8,3 +8,10 @@ codegen-backend = true
 
 [profile.dev]
 codegen-backend = "cranelift"
+
+# Aliases for common development tasks
+[alias]
+# Build with clippy enforcement (use this instead of 'cargo build')
+check-all = "clippy --all-targets --all-features -- -D warnings"
+# Quick clippy check (current package only)
+check = "clippy -- -D warnings"
