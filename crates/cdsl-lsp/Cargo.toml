@@ -8,8 +8,12 @@ name = "cdsl-lsp"
 path = "src/main.rs"
 
 [dependencies]
+# Engine - pure transport layer (use engine types directly)
+continuum-cdsl = { version = "0.1.0", path = "../continuum-cdsl" }
 continuum-kernel-registry = { version = "0.1.0", path = "../kernel-registry" }
 continuum-functions = { version = "0.1.0", path = "../kernels/functions" }
+
+# LSP infrastructure
 dashmap = "6.1.0"
 indexmap = "2.13.0"
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "io-std", "macros"] }

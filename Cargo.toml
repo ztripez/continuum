@@ -16,7 +16,7 @@ members = [
     "crates/continuum-run",
     
     # Temporarily disabled during compiler rewrite:
-    # "crates/cdsl-lsp",
+    "crates/cdsl-lsp",  # Re-enabled for migration work
     # "crates/cdsl-dap",
     # "crates/tests",
     # "crates/continuum-inspector",

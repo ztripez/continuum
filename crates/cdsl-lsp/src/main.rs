@@ -16,26 +16,24 @@
 //! - **Folding**: Collapse blocks (signals, fields, functions, etc.)
 
 mod formatter;
-mod symbols;
 
 use continuum_functions as _;
 use continuum_kernel_registry as kernel_registry;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dashmap::DashMap;
+use indexmap::IndexMap;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use walkdir::WalkDir;
 
-use continuum_compiler::dsl::ast::{CompilationUnit, Expr, Item, OperatorBody, Spanned};
-use continuum_compiler::dsl::parse;
-use symbols::{
-    ReferenceValidationInfo, SymbolIndex, SymbolKind as CdslSymbolKind, format_hover_markdown,
-    get_builtin_hover,
-};
+// Engine types - pure transport layer (no custom shadow structures)
+use continuum_cdsl::ast::{Node, RoleData, RoleId, World};
+use continuum_cdsl::foundation::{Path as EnginePath, Span as EngineSpan};
+use continuum_cdsl::{compile_from_memory, CompileError, CompileResultWithSources, SourceMap};
 
 /// Semantic token types for syntax highlighting.
 /// These indices must match the order in the legend.
@@ -66,83 +64,63 @@ struct Backend {
     workspace_roots: RwLock<Vec<Url>>,
     /// Cached document contents (for open documents).
     documents: DashMap<Url, String>,
-    /// Cached symbol indices for ALL world files (not just open ones).
-    symbol_indices: DashMap<Url, SymbolIndex>,
+    /// Compiled worlds for ALL files (not just open ones).
+    /// Pure transport - we store engine World directly, no shadow structures.
+    worlds: DashMap<Url, World>,
 }
 
 impl Backend {
     /// Parse a document and publish diagnostics.
+    /// Uses compile_from_memory() to compile in-memory source and stores World directly.
     async fn parse_and_publish_diagnostics(&self, uri: Url, text: &str) {
         let path = match uri.to_file_path() {
             Ok(p) => p,
             Err(_) => return,
         };
 
-        // Use unified compiler to get full diagnostics
-        let mut source_map = HashMap::new();
-        source_map.insert(path.clone(), text);
+        // Compile from memory using new API
+        let mut sources = IndexMap::new();
+        sources.insert(path.clone(), text.to_string());
 
-        let compile_result = continuum_compiler::compile(&source_map);
+        let compile_result = compile_from_memory(sources);
 
-        let mut diagnostics: Vec<Diagnostic> = compile_result
-            .diagnostics
-            .iter()
-            .map(|diag| {
-                let span = diag.span.clone().unwrap_or(0..0);
-                let (start_line, start_char) = offset_to_position(text, span.start);
-                let (end_line, end_char) = offset_to_position(text, span.end);
-
-                let severity = match diag.severity {
-                    continuum_compiler::Severity::Error => DiagnosticSeverity::ERROR,
-                    continuum_compiler::Severity::Warning => DiagnosticSeverity::WARNING,
-                    continuum_compiler::Severity::Hint => DiagnosticSeverity::HINT,
-                };
-
-                Diagnostic {
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                    severity: Some(severity),
-                    source: Some("cdsl".to_string()),
-                    message: diag.message.clone(),
-                    ..Default::default()
-                }
-            })
-            .collect();
-
-        // Update symbol index if we have a world
-        if let Some(world) = &compile_result.world {
-            let (ast, _) = continuum_compiler::dsl::parse(text);
-            if let Some(ast) = ast {
-                let index = SymbolIndex::new(&ast, world);
-                self.symbol_indices.insert(uri.clone(), index);
+        let diagnostics: Vec<Diagnostic> = match compile_result {
+            Ok(compiled_world) => {
+                // Success - store the World
+                self.worlds.insert(uri.clone(), compiled_world.world);
+                Vec::new() // No errors
             }
-        }
+            Err((source_map, errors)) => {
+                // Compilation failed - convert errors to LSP diagnostics
+                errors
+                    .iter()
+                    .filter_map(|error| {
+                        // Get the source file for this error
+                        let file = source_map.file(&error.span);
+                        
+                        // Only show errors from the current file
+                        if file.path != path {
+                            return None;
+                        }
 
-        // Collect clamp usage hints (still custom for now)
-        let (ast, _) = continuum_compiler::dsl::parse(text);
-        if let Some(ast) = &ast {
-            let clamp_spans = collect_clamp_usages(ast);
-            for span in clamp_spans {
-                let (start_line, start_char) = offset_to_position(text, span.start);
-                let (end_line, end_char) = offset_to_position(text, span.end);
+                        // Convert engine span (byte offsets) to LSP positions (line/col)
+                        let (start_line, start_char) = offset_to_position(text, error.span.start as usize);
+                        let (end_line, end_char) = offset_to_position(text, error.span.end as usize);
 
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                    severity: Some(DiagnosticSeverity::HINT),
-                    source: Some("cdsl".to_string()),
-                    message: "Consider using assertions instead of clamp. \
-                        Clamping can hide simulation errors by silently correcting values."
-                        .to_string(),
-                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                    ..Default::default()
-                });
+                        Some(Diagnostic {
+                            range: Range {
+                                start: Position::new(start_line, start_char),
+                                end: Position::new(end_line, end_char),
+                            },
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            source: Some("cdsl".to_string()),
+                            message: error.message.clone(),
+                            ..Default::default()
+                        })
+                    })
+                    .collect()
             }
-        }
+        };
 
         self.client
             .publish_diagnostics(uri.clone(), diagnostics, None)
@@ -189,138 +167,54 @@ impl Backend {
             Err(_) => return,
         };
 
-        let mut source_map = HashMap::new();
-        source_map.insert(path.to_path_buf(), &text as &str);
+        // Compile the file using new API
+        let mut sources = IndexMap::new();
+        sources.insert(path.to_path_buf(), text);
 
-        let compile_result = continuum_compiler::compile(&source_map);
-
-        if let Some(world) = &compile_result.world {
-            let (ast, _) = continuum_compiler::dsl::parse(&text);
-            if let Some(ast) = ast {
-                let index = SymbolIndex::new(&ast, world);
-                self.symbol_indices.insert(uri, index);
-            }
+        if let Ok(compiled_world) = compile_from_memory(sources) {
+            self.worlds.insert(uri, compiled_world.world);
         }
     }
 
-    /// Find undefined references (legacy, now handled by unified compiler)
-    #[allow(dead_code)]
-    fn find_undefined_references(
-        &self,
-        refs: &[ReferenceValidationInfo],
-    ) -> Vec<ReferenceValidationInfo> {
-        refs.iter()
-            .filter(|r| {
-                !self.symbol_indices.iter().any(|entry| {
-                    entry
-                        .value()
-                        .find_definition(r.kind, &r.target_path)
-                        .is_some()
-                })
-            })
-            .cloned()
-            .collect()
-    }
+    // COMMENTED OUT - needs rewrite for engine types
+    // /// Find undefined references (legacy, now handled by unified compiler)
+    // #[allow(dead_code)]
+    // fn find_undefined_references(
+    //     &self,
+    //     refs: &[ReferenceValidationInfo],
+    // ) -> Vec<ReferenceValidationInfo> {
+    //     refs.iter()
+    //         .filter(|r| {
+    //             !self.worlds.iter().any(|entry| {
+    //                 // TODO: implement using World directly
+    //                 false
+    //             })
+    //         })
+    //         .cloned()
+    //         .collect()
+    // }
 
     /// Check if the workspace has a world definition.
     fn has_world_definition(&self) -> bool {
-        self.symbol_indices
-            .iter()
-            .any(|entry| entry.value().has_symbol_kind(CdslSymbolKind::World))
+        // With new API, if we have any compiled world, we have a world definition
+        !self.worlds.is_empty()
     }
 
-    /// Find all unused symbols across the entire world.
-    ///
-    /// Returns a list of (path, span, kind) for symbols that have no references
-    /// anywhere in the workspace.
-    #[allow(dead_code)]
-    fn find_unused_symbols_in_file(
-        &self,
-        uri: &Url,
-    ) -> Vec<(String, std::ops::Range<usize>, CdslSymbolKind)> {
-        let index = match self.symbol_indices.get(uri) {
-            Some(idx) => idx,
-            None => return vec![],
-        };
-
-        let mut all_refs: std::collections::HashSet<(String, CdslSymbolKind)> =
-            std::collections::HashSet::new();
-
-        for entry in self.symbol_indices.iter() {
-            for ref_info in entry.value().get_references_for_validation().iter() {
-                all_refs.insert((ref_info.target_path.clone(), ref_info.kind));
-            }
-        }
-
-        let mut unused = Vec::new();
-        for (info, span) in index.get_all_definitions() {
-            match info.kind {
-                CdslSymbolKind::World
-                | CdslSymbolKind::Era
-                | CdslSymbolKind::Const
-                | CdslSymbolKind::Config => continue,
-                _ => {}
-            }
-
-            if !all_refs.contains(&(info.path.clone(), info.kind)) {
-                unused.push((info.path.clone(), span, info.kind));
-            }
-        }
-
-        unused
-    }
+    // COMMENTED OUT - needs rewrite for engine types
+    // /// Find all unused symbols across the entire world.
+    // #[allow(dead_code)]
+    // fn find_unused_symbols_in_file(
+    //     &self,
+    //     uri: &Url,
+    // ) -> Vec<(String, std::ops::Range<usize>, RoleId)> {
+    //     // TODO: implement by walking World.globals/members
+    //     vec![]
+    // }
 
     /// Run workspace-level validation and publish diagnostics.
     async fn validate_workspace(&self) {
-        if !self.has_world_definition() {
-            if let Some(entry) = self.symbol_indices.iter().next() {
-                let uri = entry.key().clone();
-                let text = self
-                    .documents
-                    .get(&uri)
-                    .map(|v| v.clone())
-                    .unwrap_or_default();
-
-                let mut diagnostics = Vec::new();
-
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(0, 0),
-                        end: Position::new(0, 0),
-                    },
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    source: Some("cdsl".to_string()),
-                    message: "Missing world definition. Every world must have exactly one \
-                        `world.name { }` declaration."
-                        .to_string(),
-                    ..Default::default()
-                });
-
-                if !text.is_empty() {
-                    let (_, errors) = parse(&text);
-                    for err in &errors {
-                        let span = err.span();
-                        let (start_line, start_char) = offset_to_position(&text, span.start);
-                        let (end_line, end_char) = offset_to_position(&text, span.end);
-
-                        diagnostics.push(Diagnostic {
-                            range: Range {
-                                start: Position::new(start_line, start_char),
-                                end: Position::new(end_line, end_char),
-                            },
-                            severity: Some(DiagnosticSeverity::ERROR),
-                            source: Some("cdsl".to_string()),
-                            message: format!("{}", err.reason()),
-                            ..Default::default()
-                        });
-                    }
-                }
-
-                self.client
-                    .publish_diagnostics(uri, diagnostics, None)
-                    .await;
-            }
-        }
+        // Validation is now handled by the unified compiler during compilation
+        // No separate validation step needed
     }
 }
 
@@ -429,7 +323,7 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.remove(&uri);
-        self.symbol_indices.remove(&uri);
+        self.worlds.remove(&uri);
 
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
@@ -1455,19 +1349,14 @@ fn get_completion_prefix(text: &str, pos: Position) -> String {
     text[start..offset].to_string()
 }
 
-fn detect_kind_prefix(prefix: &str) -> Option<(CdslSymbolKind, usize)> {
+fn detect_kind_prefix(prefix: &str) -> Option<(RoleId, usize)> {
     let prefixes = [
-        ("signal.", CdslSymbolKind::Signal),
-        ("field.", CdslSymbolKind::Field),
-        ("operator.", CdslSymbolKind::Operator),
-        ("fn.", CdslSymbolKind::Function),
-        ("type.", CdslSymbolKind::Type),
-        ("strata.", CdslSymbolKind::Strata),
-        ("era.", CdslSymbolKind::Era),
-        ("impulse.", CdslSymbolKind::Impulse),
-        ("fracture.", CdslSymbolKind::Fracture),
-        ("chronicle.", CdslSymbolKind::Chronicle),
-        ("entity.", CdslSymbolKind::Entity),
+        ("signal.", RoleId::Signal),
+        ("field.", RoleId::Field),
+        ("operator.", RoleId::Operator),
+        ("impulse.", RoleId::Impulse),
+        ("fracture.", RoleId::Fracture),
+        ("chronicle.", RoleId::Chronicle),
     ];
 
     for (pat, kind) in prefixes {
@@ -1723,23 +1612,15 @@ fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<u
     }
 }
 
-fn symbol_kind_to_lsp(kind: CdslSymbolKind) -> SymbolKind {
-    match kind {
-        CdslSymbolKind::Signal => SymbolKind::VARIABLE,
-        CdslSymbolKind::Field => SymbolKind::PROPERTY,
-        CdslSymbolKind::Operator => SymbolKind::METHOD,
-        CdslSymbolKind::Function => SymbolKind::FUNCTION,
-        CdslSymbolKind::Type => SymbolKind::TYPE_PARAMETER,
-        CdslSymbolKind::Strata => SymbolKind::NAMESPACE,
-        CdslSymbolKind::Era => SymbolKind::NAMESPACE,
-        CdslSymbolKind::Impulse => SymbolKind::EVENT,
-        CdslSymbolKind::Fracture => SymbolKind::EVENT,
-        CdslSymbolKind::Chronicle => SymbolKind::CLASS,
-        CdslSymbolKind::Entity => SymbolKind::CLASS,
-        CdslSymbolKind::Member => SymbolKind::VARIABLE,
-        CdslSymbolKind::World => SymbolKind::CONSTANT,
-        CdslSymbolKind::Const => SymbolKind::CONSTANT,
-        CdslSymbolKind::Config => SymbolKind::CONSTANT,
+/// Convert engine RoleId to LSP SymbolKind for protocol transport
+fn role_to_lsp_symbol_kind(role: RoleId) -> SymbolKind {
+    match role {
+        RoleId::Signal => SymbolKind::VARIABLE,
+        RoleId::Field => SymbolKind::PROPERTY,
+        RoleId::Operator => SymbolKind::METHOD,
+        RoleId::Impulse => SymbolKind::EVENT,
+        RoleId::Fracture => SymbolKind::EVENT,
+        RoleId::Chronicle => SymbolKind::CLASS,
     }
 }
 
@@ -1789,7 +1670,7 @@ async fn main() {
         client,
         workspace_roots: RwLock::new(Vec::new()),
         documents: DashMap::new(),
-        symbol_indices: DashMap::new(),
+        worlds: DashMap::new(),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }
