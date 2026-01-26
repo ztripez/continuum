@@ -5,12 +5,12 @@
 pub mod adapter;
 pub mod server;
 
-use continuum_compiler::ir::CompiledWorld;
+use continuum_cdsl::ast::World;
 use continuum_runtime::Runtime;
 
 /// High-level debug session state.
 pub struct DebugSession {
-    pub world: CompiledWorld,
+    pub world: World,
     pub runtime: Runtime,
     pub breakpoints: std::collections::HashSet<usize>, // Byte offsets or line numbers?
 }

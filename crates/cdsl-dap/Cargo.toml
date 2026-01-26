@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# New compiler API
+continuum-cdsl = { path = "../continuum-cdsl" }
 continuum-runtime = { path = "../kernels/runtime" }
 continuum-foundation = { path = "../kernels/foundation" }
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "io-std", "macros", "io-util", "sync"] }
@@ -13,5 +16,4 @@ thiserror = "2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-dap = "0.4.1-alpha1"
- # Using the 'dap' crate for protocol types
+dap = "0.4.1-alpha1"  # Using the 'dap' crate for protocol types

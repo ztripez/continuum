@@ -1,5 +1,6 @@
-use continuum_compiler::ir::{build_runtime, compile, CompiledWorld, RuntimeBuildOptions};
-use continuum_runtime::Runtime;
+use continuum_cdsl::ast::World;
+use continuum_cdsl::compile_with_sources;
+use continuum_runtime::{build_runtime, Runtime};
 use dap::events::{Event, StoppedEventBody};
 use dap::prelude::*;
 use dap::types::{Capabilities, Message, Scope, StackFrame, StoppedEventReason, Thread, Variable};
@@ -18,7 +19,7 @@ pub struct ContinuumDebugAdapter {
 }
 
 pub struct DebugSession {
-    pub world: CompiledWorld,
+    pub world: World,
     pub runtime: Runtime,
     pub sources: HashMap<PathBuf, String>,
     pub breakpoints: HashMap<PathBuf, HashSet<usize>>, // File -> Line numbers
@@ -108,44 +109,43 @@ impl ContinuumDebugAdapter {
 
                 info!(world_path = ?world_path, "Launching simulation");
 
-                let compile_result = continuum_compiler::compile_from_dir_result(&world_path);
-                let diagnostics = compile_result.format_diagnostics();
-                let sources = compile_result.sources.clone();
-                let world = match compile_result.success() {
-                    Ok(w) => w,
-                    Err(_) => {
-                        error!("Compilation failed: {}", diagnostics);
-                        return self.make_error_response(
-                            &request,
-                            format!("Compilation failed: {}", diagnostics),
-                        );
-                    }
-                };
-
-                let compilation = match compile(&world) {
+                // Compile using new API
+                let compiled = match compile_with_sources(&world_path) {
                     Ok(c) => c,
-                    Err(e) => {
+                    Err((source_map, errors)) => {
+                        let diagnostics = continuum_cdsl::format_errors(&errors, &source_map);
+                        error!("Compilation failed:\n{}", diagnostics);
                         return self.make_error_response(
                             &request,
-                            format!("DAG compilation failed: {}", e),
+                            format!("Compilation failed:\n{}", diagnostics),
                         );
                     }
                 };
 
-                let (runtime, _report) =
-                    match build_runtime(&world, compilation, RuntimeBuildOptions::default()) {
-                        Ok(result) => result,
-                        Err(error) => {
-                            return self.make_error_response(
-                                &request,
-                                format!("Runtime build failed: {}", error),
-                            );
+                // Extract sources from compiled world (from source_map)
+                // TODO: We need access to the source map to get source contents
+                // For now, we'll read files directly as a workaround
+                let mut sources = HashMap::new();
+                for entry in std::fs::read_dir(&world_path).map_err(|e| {
+                    error!("Failed to read world directory: {}", e);
+                    e
+                }).ok().into_iter().flatten() {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.extension().map_or(false, |ext| ext == "cdsl") {
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                sources.insert(path, content);
+                            }
                         }
-                    };
+                    }
+                }
+
+                // Build runtime
+                let runtime = build_runtime(compiled.clone(), None);
 
                 let mut session = self.session.lock().await;
                 *session = Some(DebugSession {
-                    world,
+                    world: compiled.world,
                     runtime,
                     sources,
                     breakpoints: HashMap::new(),
@@ -186,17 +186,17 @@ impl ContinuumDebugAdapter {
                         let mut set_breakpoints: HashSet<usize> = HashSet::new();
 
                         for (bp_path, bp_lines) in &session.breakpoints {
-                            for (id, node) in session.world.nodes.iter() {
+                            for (path, node) in session.world.globals.iter() {
                                 if let Some(ref node_file) = node.file {
                                     if node_file == bp_path {
                                         if let Some(source) = session.sources.get(node_file) {
                                             let (line, _) =
-                                                offset_to_line_col(source, node.span.start);
+                                                offset_to_line_col(source, node.span.start as usize);
                                             let line_1based = line as usize + 1;
                                             if bp_lines.contains(&line_1based) {
                                                 let signal_id =
                                                     continuum_foundation::SignalId::from(
-                                                        id.to_string(),
+                                                        path.to_string(),
                                                     );
                                                 session.runtime.add_breakpoint(signal_id);
                                                 set_breakpoints.insert(line_1based);
@@ -248,7 +248,7 @@ impl ContinuumDebugAdapter {
                     // If we are at a breakpoint, add a frame for the signal
                     if let Some(ref signal_id) = session.current_halt_signal {
                         let path = continuum_foundation::Path::from(signal_id.to_string());
-                        if let Some(node) = session.world.nodes.get(&path) {
+                        if let Some(node) = session.world.globals.get(&path) {
                             let mut frame = StackFrame {
                                 id: 2,
                                 name: format!("Signal: {}", signal_id),
@@ -261,16 +261,15 @@ impl ContinuumDebugAdapter {
                                 frame.source = Some(dap::types::Source {
                                     name: Some(
                                         file.file_name()
-                                            .unwrap_or_default()
-                                            .to_string_lossy()
-                                            .to_string(),
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_default(),
                                     ),
                                     path: Some(file.to_string_lossy().to_string()),
                                     ..Default::default()
                                 });
 
                                 if let Some(source) = session.sources.get(file) {
-                                    let (line, col) = offset_to_line_col(source, node.span.start);
+                                    let (line, col) = offset_to_line_col(source, node.span.start as usize);
                                     frame.line = line as i64 + 1;
                                     frame.column = col as i64 + 1;
                                 }
@@ -330,26 +329,25 @@ impl ContinuumDebugAdapter {
                 if let Some(ref session) = *session_opt {
                     if args.variables_reference == 1 {
                         // Scope: Signals
-                        for (id, _signal) in &session.world.signals() {
-                            if let Some(val) = session.runtime.get_signal(id) {
-                                variables.push(Variable {
-                                    name: id.to_string(),
-                                    value: format!("{}", val),
-                                    variables_reference: 0,
-                                    ..Default::default()
-                                });
-                            }
-                        }
-                    } else if args.variables_reference == 2 {
-                        // Scope: Configuration
-                        for (name, (val, unit)) in &session.world.config {
+                        // TODO: Implement signal value inspection once runtime API supports it
+                        for (path, node) in &session.world.globals {
                             variables.push(Variable {
-                                name: name.clone(),
-                                value: format!("{}{:?}", val, unit),
+                                name: path.to_string(),
+                                value: format!("{:?} (not implemented)", node.output),
                                 variables_reference: 0,
                                 ..Default::default()
                             });
                         }
+                    } else if args.variables_reference == 2 {
+                        // Scope: Configuration
+                        // TODO: World config is not in World structure anymore
+                        // Need to query compiled world metadata
+                        variables.push(Variable {
+                            name: "config".to_string(),
+                            value: "(not implemented)".to_string(),
+                            variables_reference: 0,
+                            ..Default::default()
+                        });
                     } else if args.variables_reference == 3 {
                         // Scope: Entities
                         for (i, (id, instances)) in session.runtime.entities().iter().enumerate() {

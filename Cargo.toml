@@ -17,7 +17,7 @@ members = [
     
     # Temporarily disabled during compiler rewrite:
     "crates/cdsl-lsp",  # Re-enabled for migration work
-    # "crates/cdsl-dap",
+    "crates/cdsl-dap",  # Re-enabled for migration work
     # "crates/tests",
     # "crates/continuum-inspector",
     # "crates/kernels/gpu",
