@@ -10,6 +10,7 @@
 mod formatter;
 
 use continuum_functions as _;
+use continuum_kernel_registry as kernel_registry;
 use std::path::{Path, PathBuf};
 
 use dashmap::DashMap;
@@ -213,8 +214,16 @@ impl LanguageServer for Backend {
                 ),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
-                // TODO: Re-enable as handlers are implemented
-                // ... etc
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: Default::default(),
+                }),
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -804,6 +813,106 @@ impl LanguageServer for Backend {
         }
 
         Ok(Some(ranges))
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let _uri = &params.text_document_position_params.text_document.uri;
+        let _position = params.text_document_position_params.position;
+
+        // TODO: Parse cursor context to find function call and active parameter
+        // For now, return None (no signature help)
+        // Full implementation requires:
+        // 1. Finding function call at cursor
+        // 2. Determining active parameter index
+        // 3. Looking up function signature in World or kernel registry
+        
+        Ok(None)
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = &params.text_document.uri;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let mut hints = Vec::new();
+
+        // Add type hints for nodes with resolved output types
+        for (_path, node) in world.globals.iter() {
+            if let Some(ref output_type) = node.output {
+                let (line, col) = offset_to_position(&doc, node.span.end as usize);
+                
+                hints.push(InlayHint {
+                    position: Position::new(line, col),
+                    label: InlayHintLabel::String(format!(": {:?}", output_type)),
+                    kind: Some(InlayHintKind::TYPE),
+                    text_edits: None,
+                    tooltip: None,
+                    padding_left: Some(false),
+                    padding_right: Some(true),
+                    data: None,
+                });
+            }
+        }
+
+        Ok(Some(hints))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = &params.text_document.uri;
+        let position = params.position;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let world = match self.worlds.get(uri) {
+            Some(world) => world,
+            None => return Ok(None),
+        };
+
+        let offset = position_to_offset(&doc, position);
+
+        // Check if cursor is on a renameable symbol
+        for (_path, node) in world.globals.iter() {
+            if node.span.start as usize <= offset && offset <= node.span.end as usize {
+                let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
+                let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+
+                return Ok(Some(PrepareRenameResponse::Range(Range {
+                    start: Position::new(start_line, start_char),
+                    end: Position::new(end_line, end_char),
+                })));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        // TODO: Implement full rename
+        // Requires:
+        // 1. Finding all references to the symbol
+        // 2. Creating edits for all occurrences
+        // 3. Handling cross-file renames
+        // For now, return None (rename not supported)
+        
+        let _uri = &params.text_document_position.text_document.uri;
+        let _position = params.text_document_position.position;
+        let _new_name = params.new_name;
+
+        Ok(None)
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
