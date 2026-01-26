@@ -298,6 +298,19 @@ pub fn desugar_stmt(stmt: Stmt<Expr>) -> Stmt<Expr> {
             value: desugar_expr(value),
             span,
         },
+        Stmt::MemberSignalAssign {
+            entity,
+            instance,
+            member,
+            value,
+            span,
+        } => Stmt::MemberSignalAssign {
+            entity,
+            instance: desugar_expr(instance),
+            member,
+            value: desugar_expr(value),
+            span,
+        },
         Stmt::FieldAssign {
             target,
             position,

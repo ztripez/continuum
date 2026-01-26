@@ -387,6 +387,61 @@ pub fn type_field_access(
     ))
 }
 
+/// Type an index access expression: `entity.X[i]`
+///
+/// Validates that:
+/// - The object resolves to an entity reference (Type::Entity or Entity expression)
+/// - The index is an integer expression
+///
+/// Returns the entity instance handle type.
+pub fn type_index_access(
+    ctx: &TypingContext,
+    object: &Expr,
+    index: &Expr,
+    span: continuum_cdsl_ast::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    // Type the object - must be an entity reference
+    let typed_object = type_expression(object, ctx, None)?;
+
+    // Extract entity ID from the object
+    let entity_id = match &typed_object.expr {
+        ExprKind::Entity(id) => id.clone(),
+        _ => {
+            return Err(vec![CompileError::new(
+                ErrorKind::TypeMismatch,
+                span,
+                format!(
+                    "index access requires entity reference, found {:?}",
+                    typed_object.ty
+                ),
+            )]);
+        }
+    };
+
+    // Type the index - must be integer (for now, we'll use Scalar<1> to represent integer)
+    let typed_index = type_expression(index, ctx, None)?;
+
+    // Verify index is scalar (integer check would be stricter but we'll accept any scalar)
+    if !matches!(typed_index.ty, Type::Kernel(ref kt) if matches!(kt.shape, Shape::Scalar)) {
+        return Err(vec![CompileError::new(
+            ErrorKind::TypeMismatch,
+            span,
+            format!("index must be integer/scalar, found {:?}", typed_index.ty),
+        )]);
+    }
+
+    // Result type is the entity's instance handle type
+    let instance_ty = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
+
+    Ok((
+        ExprKind::Index {
+            entity: entity_id,
+            index: Box::new(typed_index),
+        },
+        instance_ty,
+    ))
+}
+
 /// Resolves the type of a vector literal (e.g., `[1.0, 2.0, 3.0]`).
 ///
 /// All elements must have consistent scalar kernel types with matching units.

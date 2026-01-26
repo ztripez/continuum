@@ -170,6 +170,12 @@ pub fn type_expression(
             (k, t)
         }
 
+        // === Index access into entity instances ===
+        UntypedKind::Index { object, index } => {
+            let (k, t) = type_index_access(ctx, object, index, span)?;
+            (k, t)
+        }
+
         // === Config lookup ===
         UntypedKind::Config(path) => {
             let ty = lookup_path_type(ctx, path, span, "config path", ctx.config_types)?;
