@@ -186,6 +186,16 @@ pub enum OpcodeKind {
     ///
     /// Only valid in the Collect phase.
     Emit,
+    /// Emits a value to a specific entity instance's member signal.
+    ///
+    /// Stack layout: [..., instance_idx: u32, value: T] -> [...]
+    /// Operand[0]: Entity ID (EntityId)
+    /// Operand[1]: Member signal path (Path)
+    ///
+    /// Pops instance_idx and value from stack, accumulates value to
+    /// the member signal input channel for that specific instance.
+    /// Only valid in Collect and Fracture phases.
+    EmitMember,
     /// Emits a value to a spatial field at a given position.
     ///
     /// Pops [Value, Position] and writes to field path in operand[0]. Only valid in Measure phase.

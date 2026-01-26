@@ -733,6 +733,59 @@ pub(crate) fn handle_emit(
     })
 }
 
+/// Emits a value to a specific entity instance's member signal.
+///
+/// # Operands
+/// - 0: Entity ID ([`Operand::Entity`])
+/// - 1: Member signal path ([`Operand::Signal`])
+///
+/// # Stack
+/// - [instance_idx: u32, value: T] → [ ]
+///
+/// Pops instance index and value from stack, accumulates value to
+/// the member signal input channel for that specific instance.
+pub(crate) fn handle_emit_member(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let entity = operand_entity(&instruction.operands[0])?;
+    let member_path = operand_signal_path(&instruction.operands[1])?;
+
+    // Pop value and instance_idx from stack (reverse order)
+    let value = runtime.pop()?;
+    let instance_val = runtime.pop()?;
+
+    // Extract instance index as u32
+    let instance_idx = match instance_val {
+        Value::Integer(idx) => {
+            if idx < 0 {
+                return Err(ExecutionError::InvalidOperand {
+                    message: format!("Instance index must be non-negative, got {}", idx),
+                });
+            }
+            idx as u32
+        }
+        Value::Scalar(idx) => {
+            if idx < 0.0 || idx.fract() != 0.0 {
+                return Err(ExecutionError::InvalidOperand {
+                    message: format!("Instance index must be a non-negative integer, got {}", idx),
+                });
+            }
+            idx as u32
+        }
+        _ => {
+            return Err(ExecutionError::TypeMismatch {
+                expected: "Integer or Scalar instance index".to_string(),
+                found: format!("{:?}", instance_val),
+            });
+        }
+    };
+
+    ctx.emit_member_signal(&entity, instance_idx, &member_path, value)
+}
+
 /// Emits a value to a spatial field at a given position.
 ///
 /// Pops [Value, Position] from the stack. Target field is in operand[0].

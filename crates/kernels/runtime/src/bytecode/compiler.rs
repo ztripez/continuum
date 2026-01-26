@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use continuum_cdsl::ast::{Execution, ExecutionBody, ExprKind, TypedExpr, TypedStmt};
 use continuum_cdsl::foundation::Type;
-use continuum_foundation::{AggregateOp, Path, Phase, Value};
+use continuum_foundation::{AggregateOp, EntityId, Path, Phase, Value};
 
 use crate::bytecode::opcode::{Instruction, OpcodeKind};
 use crate::bytecode::operand::{BlockId, Operand, Slot};
@@ -168,6 +168,27 @@ impl Compiler {
                 block.instructions.push(Instruction::new(
                     OpcodeKind::Emit,
                     vec![Operand::Signal(target.clone())],
+                ));
+            }
+            Stmt::MemberSignalAssign {
+                entity,
+                instance,
+                member,
+                value,
+                ..
+            } => {
+                // Compile instance expression (pushes instance_idx onto stack)
+                self.compile_expr(block, instance)?;
+                // Compile value expression (pushes value onto stack)
+                self.compile_expr(block, value)?;
+                // Emit EmitMember instruction with entity and member path
+                // Entity is a Path (e.g., "terra.plate"), convert to EntityId
+                let entity_id = EntityId::from(entity.to_string());
+                // Member is a String, need to construct full member path
+                let member_path = Path::from_path_str(&format!("{}.{}", entity, member));
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::EmitMember,
+                    vec![Operand::Entity(entity_id), Operand::Signal(member_path)],
                 ));
             }
             Stmt::FieldAssign {
@@ -486,6 +507,15 @@ impl Compiler {
                     OpcodeKind::Filter,
                     vec![Operand::Slot(binding_slot), Operand::Block(block_id)],
                 ));
+            }
+            ExprKind::Index { .. } => {
+                // Index expressions are only used in MemberSignalAssign contexts
+                // where they appear in the target (entity.X[i]) not value expressions.
+                // The actual instance index is compiled separately in MemberSignalAssign.
+                // If we reach here, it's a misplaced index expression.
+                return Err(CompileError::InvalidIR {
+                    message: "Index expression in value position (only allowed in emit member signal target)".to_string(),
+                });
             }
         }
 

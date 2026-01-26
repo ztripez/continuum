@@ -301,6 +301,27 @@ pub trait ExecutionContext {
     /// Emits a value to a signal.
     fn emit_signal(&mut self, target: &Path, value: Value) -> Result<(), ExecutionError>;
 
+    /// Emits a value to a specific entity instance's member signal.
+    ///
+    /// # Parameters
+    /// - `entity`: Entity type identifier
+    /// - `instance_idx`: Instance index (0..N)
+    /// - `member_path`: Full member signal path (e.g., "terra.plate.omega")
+    /// - `value`: Value to accumulate
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - Instance index is out of bounds
+    /// - Member signal path is invalid
+    /// - Called outside Collect/Fracture phases
+    fn emit_member_signal(
+        &mut self,
+        entity: &EntityId,
+        instance_idx: u32,
+        member_path: &Path,
+        value: Value,
+    ) -> Result<(), ExecutionError>;
+
     /// Emits a value to a spatial field at a given position.
     fn emit_field(
         &mut self,

@@ -1373,6 +1373,31 @@ impl<'a> ExecutionContext for VMContext<'a> {
         Ok(())
     }
 
+    fn emit_member_signal(
+        &mut self,
+        _entity: &EntityId,
+        _instance_idx: u32,
+        _member_path: &Path,
+        _value: Value,
+    ) -> std::result::Result<(), ExecutionError> {
+        // Phase validation
+        if self.phase != Phase::Collect && self.phase != Phase::Fracture {
+            return Err(ExecutionError::InvalidOpcode {
+                opcode: "EmitMember only allowed in Collect or Fracture phase".to_string(),
+                phase: self.phase,
+            });
+        }
+
+        // TODO: Implement per-instance input accumulation storage
+        // This requires adding member_signal_inputs: IndexMap<(EntityId, u32, Path), Vec<f64>>
+        // to InputChannels or a new storage structure.
+        panic!(
+            "Member signal input accumulation not yet implemented. \
+             This requires per-instance input channel storage. \
+             Issue: continuum-gn13 Phase 4"
+        );
+    }
+
     fn emit_field(
         &mut self,
         path: &Path,
