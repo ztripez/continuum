@@ -115,6 +115,10 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
             }
         }
 
+        ExprKind::Index { index, .. } => {
+            errors.extend(validate_expr(index, ctx));
+        }
+
         ExprKind::Aggregate { source, body, .. } => {
             errors.extend(validate_expr(source, ctx));
             errors.extend(validate_expr(body, ctx));

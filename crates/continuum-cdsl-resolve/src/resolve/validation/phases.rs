@@ -43,6 +43,21 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                             }
                             errors.extend(validate_expr(value, &ctx))
                         }
+                        continuum_cdsl_ast::TypedStmt::MemberSignalAssign {
+                            instance,
+                            value,
+                            ..
+                        } => {
+                            if value.ty.is_seq() {
+                                errors.push(CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    value.span,
+                                    "Seq types cannot be assigned to member signals".to_string(),
+                                ));
+                            }
+                            errors.extend(validate_expr(instance, &ctx));
+                            errors.extend(validate_expr(value, &ctx));
+                        }
                         continuum_cdsl_ast::TypedStmt::FieldAssign {
                             position, value, ..
                         } => {
@@ -131,6 +146,10 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                                 if let continuum_cdsl_ast::TypedStmt::Expr(expr)
                                 | continuum_cdsl_ast::TypedStmt::Let { value: expr, .. }
                                 | continuum_cdsl_ast::TypedStmt::SignalAssign {
+                                    value: expr,
+                                    ..
+                                }
+                                | continuum_cdsl_ast::TypedStmt::MemberSignalAssign {
                                     value: expr,
                                     ..
                                 }

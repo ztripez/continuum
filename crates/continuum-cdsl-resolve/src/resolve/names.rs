@@ -594,6 +594,11 @@ pub fn validate_expr(
             // If object is Local, skip validation - will be validated as bare path in type resolution
         }
 
+        ExprKind::Index { object, index } => {
+            validate_expr(object, table, scope, errors);
+            validate_expr(index, table, scope, errors);
+        }
+
         ExprKind::If {
             condition,
             then_branch,

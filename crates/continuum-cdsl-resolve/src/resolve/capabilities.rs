@@ -313,6 +313,10 @@ fn scan_for_capability_violations(
             scan_for_capability_violations(object, ctx, errors);
         }
 
+        ExprKind::Index { index, .. } => {
+            scan_for_capability_violations(index, ctx, errors);
+        }
+
         ExprKind::Aggregate { source, body, .. } => {
             scan_for_capability_violations(source, ctx, errors);
             scan_for_capability_violations(body, ctx, errors);

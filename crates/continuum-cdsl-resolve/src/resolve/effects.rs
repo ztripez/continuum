@@ -168,6 +168,10 @@ fn scan_for_effect_violations(
             scan_for_effect_violations(&object, ctx, registry, errors);
         }
 
+        ExprKind::Index { index, .. } => {
+            scan_for_effect_violations(&index, ctx, registry, errors);
+        }
+
         ExprKind::Vector(elements) => {
             for elem in elements {
                 scan_for_effect_violations(&elem, ctx, registry, errors);

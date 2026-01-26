@@ -421,6 +421,7 @@ fn describe_expr_kind(kind: &UntypedKind) -> &'static str {
         UntypedKind::Fold { .. } => "fold expression",
         UntypedKind::Struct { .. } => "struct literal",
         UntypedKind::FieldAccess { .. } => "field access",
+        UntypedKind::Index { .. } => "index access",
         UntypedKind::Entity(_) => "entity reference",
         UntypedKind::Nearest { .. } => "nearest query",
         UntypedKind::Within { .. } => "within query",

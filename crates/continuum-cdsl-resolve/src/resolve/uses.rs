@@ -186,7 +186,8 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
             | ExprKind::Within { .. }
             | ExprKind::Neighbors { .. }
             | ExprKind::Struct { .. }
-            | ExprKind::FieldAccess { .. } => {}
+            | ExprKind::FieldAccess { .. }
+            | ExprKind::Index { .. } => {}
         }
     }
 }
@@ -202,6 +203,12 @@ fn collect_required_uses_untyped_stmt(
         Stmt::Let { value, .. } => collect_required_uses_untyped(value, registry, required),
         Stmt::SignalAssign { value, .. } => {
             collect_required_uses_untyped(value, registry, required)
+        }
+        Stmt::MemberSignalAssign {
+            instance, value, ..
+        } => {
+            collect_required_uses_untyped(instance, registry, required);
+            collect_required_uses_untyped(value, registry, required);
         }
         Stmt::FieldAssign {
             position, value, ..
@@ -345,6 +352,11 @@ fn collect_required_uses_untyped(
 
         UntypedKind::FieldAccess { object, .. } => {
             collect_required_uses_untyped(object, registry, required);
+        }
+
+        UntypedKind::Index { object, index } => {
+            collect_required_uses_untyped(object, registry, required);
+            collect_required_uses_untyped(index, registry, required);
         }
 
         UntypedKind::Vector(elements) => {

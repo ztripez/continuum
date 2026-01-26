@@ -86,6 +86,10 @@ impl ExpressionVisitor for DependencyVisitor {
                     }
                 }
             }
+            ExprKind::Index { entity, .. } => {
+                // Index access creates dependency on the entity
+                self.paths.insert(Path::from(entity.0.to_string().as_str()));
+            }
             // Temporal tracking (continuum-ak0c): Capture self-referential temporal read
             ExprKind::Prev => {
                 self.temporal_paths.insert(self.current_node_path.clone());

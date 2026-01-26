@@ -171,6 +171,52 @@ pub fn compile_statements(
                     Err(mut e) => errors.append(&mut e),
                 }
             }
+            Stmt::MemberSignalAssign {
+                entity,
+                instance,
+                member,
+                value,
+                span,
+            } => {
+                // Phase boundary: member signal assignment only in Collect or Fracture
+                if let Some(phase) = current_ctx.phase
+                    && phase != Phase::Collect
+                    && phase != Phase::Fracture
+                {
+                    errors.push(CompileError::new(
+                        ErrorKind::PhaseBoundaryViolation,
+                        *span,
+                        format!(
+                            "member signal assignment not allowed in {:?} phase (only Collect or Fracture)",
+                            phase
+                        ),
+                    ));
+                }
+
+                // Type the instance and value expressions
+                let typed_instance = type_expression(instance, &current_ctx, None);
+                let typed_value = type_expression(value, &current_ctx, None);
+
+                match (typed_instance, typed_value) {
+                    (Ok(inst), Ok(val)) => {
+                        // For now, just emit the typed statement
+                        // Full validation (entity exists, member exists, type match)
+                        // will be added in a later pass
+                        typed_stmts.push(TypedStmt::MemberSignalAssign {
+                            entity: entity.clone(),
+                            instance: inst,
+                            member: member.clone(),
+                            value: val,
+                            span: *span,
+                        });
+                    }
+                    (Err(mut e1), Err(mut e2)) => {
+                        errors.append(&mut e1);
+                        errors.append(&mut e2);
+                    }
+                    (Err(mut e), _) | (_, Err(mut e)) => errors.append(&mut e),
+                }
+            }
             Stmt::FieldAssign {
                 target,
                 position,
@@ -351,6 +397,7 @@ pub fn compile_statements(
                 TypedStmt::Expr(expr)
                 | TypedStmt::Let { value: expr, .. }
                 | TypedStmt::SignalAssign { value: expr, .. }
+                | TypedStmt::MemberSignalAssign { value: expr, .. }
                 | TypedStmt::FieldAssign { value: expr, .. }
                 | TypedStmt::Assert {
                     condition: expr, ..
@@ -389,6 +436,7 @@ pub fn compile_statements(
                         if let TypedStmt::Expr(expr)
                         | TypedStmt::Let { value: expr, .. }
                         | TypedStmt::SignalAssign { value: expr, .. }
+                        | TypedStmt::MemberSignalAssign { value: expr, .. }
                         | TypedStmt::FieldAssign { value: expr, .. }
                         | TypedStmt::Assert {
                             condition: expr, ..
