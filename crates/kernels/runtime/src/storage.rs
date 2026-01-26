@@ -134,19 +134,122 @@ impl SignalStorage {
     }
 }
 
-/// Accumulator for signal inputs during Collect phase
-#[derive(Debug, Default, Serialize, Deserialize)]
+// ============================================================================
+// Generic Input Channel Accumulator
+// ============================================================================
+
+/// Generic accumulator for input values during Collect phase.
+///
+/// This struct provides a type-safe way to accumulate and drain input values
+/// keyed by any hashable type `K`, with values of any summable type `V`.
+///
+/// # Type Parameters
+///
+/// * `K` - Key type (must be Clone + Eq + Hash)
+/// * `V` - Value type (must implement Sum and Default for drain_sum)
+///
+/// # Example
+///
+/// ```ignore
+/// use continuum_runtime::storage::GenericInputChannels;
+/// use continuum_foundation::SignalId;
+///
+/// let mut channels = GenericInputChannels::<SignalId, f64>::new();
+/// channels.accumulate(&signal_id, 1.5);
+/// channels.accumulate(&signal_id, 2.0);
+/// let sum = channels.drain_sum(&signal_id); // Returns 3.5
+/// ```
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GenericInputChannels<K, V = f64>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    channels: IndexMap<K, Vec<V>>,
+}
+
+impl<K, V> GenericInputChannels<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    /// Create a new empty channel accumulator.
+    pub fn new() -> Self {
+        Self {
+            channels: IndexMap::new(),
+        }
+    }
+
+    /// Accumulate a value for a key.
+    ///
+    /// Values are appended to a vector for each key, allowing multiple
+    /// emissions to the same key within a single tick.
+    pub fn accumulate(&mut self, key: &K, value: V) {
+        self.channels.entry(key.clone()).or_default().push(value);
+    }
+
+    /// Sum all accumulated values for a key and remove them.
+    ///
+    /// # Returns
+    ///
+    /// - Sum of all accumulated values if any exist
+    /// - Default value (typically 0.0 for numeric types) if no values accumulated
+    ///
+    /// # Semantic Correctness
+    ///
+    /// Returning the default value for missing keys is intentional:
+    /// - Signals with no inputs have zero contribution
+    /// - The additive identity is the correct default for sum accumulation
+    pub fn drain_sum(&mut self, key: &K) -> V
+    where
+        V: std::iter::Sum + Default,
+    {
+        self.channels
+            .shift_remove(key)
+            .map(|values| values.into_iter().sum())
+            .unwrap_or_default()
+    }
+
+    /// Sum all accumulated values for a key without removing them.
+    pub fn peek_sum(&self, key: &K) -> V
+    where
+        V: std::iter::Sum + Default + Copy,
+    {
+        self.channels
+            .get(key)
+            .map(|values| values.iter().copied().sum())
+            .unwrap_or_default()
+    }
+}
+
+// ============================================================================
+// Concrete Input Channels (Backward Compatibility)
+// ============================================================================
+
+/// Accumulator for signal inputs during Collect phase.
+///
+/// This struct manages two separate accumulation channels:
+/// - Global signals (keyed by SignalId)
+/// - Member signal instances (keyed by (EntityId, instance_idx, member_path))
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InputChannels {
     /// Accumulated inputs per signal
-    channels: IndexMap<SignalId, Vec<f64>>,
-    /// Accumulated inputs per member signal instance: (entity_id, instance_idx, member_path) -> values
-    member_channels: IndexMap<(EntityId, u32, Path), Vec<f64>>,
+    channels: GenericInputChannels<SignalId, f64>,
+    /// Accumulated inputs per member signal instance
+    member_channels: GenericInputChannels<(EntityId, u32, Path), f64>,
+}
+
+impl Default for InputChannels {
+    fn default() -> Self {
+        Self {
+            channels: GenericInputChannels::new(),
+            member_channels: GenericInputChannels::new(),
+        }
+    }
 }
 
 impl InputChannels {
     /// Accumulate an input value for a signal.
     pub fn accumulate(&mut self, id: &SignalId, value: f64) {
-        self.channels.entry(id.clone()).or_default().push(value);
+        self.channels.accumulate(id, value);
     }
 
     /// Accumulate an input value for a specific member signal instance.
@@ -164,7 +267,7 @@ impl InputChannels {
         value: f64,
     ) {
         let key = (entity.clone(), instance_idx, member_path.clone());
-        self.member_channels.entry(key).or_default().push(value);
+        self.member_channels.accumulate(&key, value);
     }
 
     /// Sum all accumulated values for a member signal instance and remove them.
@@ -206,26 +309,17 @@ impl InputChannels {
         member_path: &Path,
     ) -> f64 {
         let key = (entity.clone(), instance_idx, member_path.clone());
-        self.member_channels
-            .shift_remove(&key)
-            .map(|values| values.iter().sum())
-            .unwrap_or(0.0)
+        self.member_channels.drain_sum(&key)
     }
 
     /// Sum all accumulated values for a signal and remove them from the channels.
     pub fn drain_sum(&mut self, id: &SignalId) -> f64 {
-        self.channels
-            .shift_remove(id)
-            .map(|values| values.iter().sum())
-            .unwrap_or(0.0)
+        self.channels.drain_sum(id)
     }
 
     /// Sum all accumulated values for a signal without removing them.
     pub fn peek_sum(&self, id: &SignalId) -> f64 {
-        self.channels
-            .get(id)
-            .map(|values| values.iter().sum())
-            .unwrap_or(0.0)
+        self.channels.peek_sum(id)
     }
 }
 
