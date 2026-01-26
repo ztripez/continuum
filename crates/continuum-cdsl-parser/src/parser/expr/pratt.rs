@@ -189,6 +189,21 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                     ));
                 }
             }
+            Some(Token::LBracket) => {
+                // Index access: expr[index]
+                stream.advance();
+                let index = super::parse_expr(stream)?;
+                stream.expect(Token::RBracket)?;
+                let span = expr.span;
+
+                expr = Expr::new(
+                    UntypedKind::Index {
+                        object: Box::new(expr),
+                        index: Box::new(index),
+                    },
+                    span,
+                );
+            }
             Some(Token::LBrace) => {
                 // Struct literal: type_name { field1: value1, field2: value2 }
                 // Disambiguate from block expressions by checking for field_name: pattern

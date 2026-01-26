@@ -109,6 +109,10 @@ where
             walk_expr(object, visitor);
         }
 
+        ExprKind::Index { index, .. } => {
+            walk_expr(index, visitor);
+        }
+
         ExprKind::Aggregate { source, body, .. } => {
             walk_expr(source, visitor);
             walk_expr(body, visitor);

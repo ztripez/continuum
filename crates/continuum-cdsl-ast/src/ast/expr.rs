@@ -609,6 +609,36 @@ pub enum ExprKind {
         /// Field name
         field: String,
     },
+
+    /// Index access into entity instances
+    ///
+    /// Represents `entity.X[i]` where `i` is a runtime index expression.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// entity.terra.plate[i]    // Runtime index
+    /// entity.terra.plate[0]    // Literal index
+    /// ```
+    ///
+    /// # Type Rules
+    ///
+    /// - Object must resolve to an entity reference (Type::Entity)
+    /// - Index must be integer type
+    /// - Result type is the entity's instance handle type
+    ///
+    /// # Usage
+    ///
+    /// This is primarily used in member signal assignments:
+    /// ```cdsl
+    /// emit entity.terra.plate[i].omega <- torque
+    /// ```
+    Index {
+        /// Entity being indexed
+        entity: EntityId,
+        /// Index expression (must be integer type)
+        index: Box<TypedExpr>,
+    },
 }
 
 /// Typed expression with type and source location
@@ -792,6 +822,9 @@ impl TypedExpr {
             // Struct construction and field access are pure if operands are pure
             ExprKind::Struct { fields, .. } => fields.iter().all(|(_, expr)| expr.is_pure()),
             ExprKind::FieldAccess { object, .. } => object.is_pure(),
+
+            // Index access is pure if the index expression is pure
+            ExprKind::Index { index, .. } => index.is_pure(),
         }
     }
 
@@ -840,6 +873,9 @@ impl TypedExpr {
             }
             ExprKind::FieldAccess { object, .. } => {
                 object.walk(visitor);
+            }
+            ExprKind::Index { index, .. } => {
+                index.walk(visitor);
             }
             ExprKind::Nearest { position, .. } => {
                 position.walk(visitor);

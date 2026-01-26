@@ -65,6 +65,41 @@ pub enum Stmt<E = Expr> {
         span: Span,
     },
 
+    /// Member signal assignment: `entity.X[i].member <- expr`
+    ///
+    /// Emits a value to an entity member signal's per-instance input accumulator.
+    /// Valid in Collect and Fracture phases only.
+    ///
+    /// # Syntax
+    ///
+    /// ```cdsl
+    /// for i in 0..entity.terra.plate.count {
+    ///     emit entity.terra.plate[i].omega <- torque_value
+    /// }
+    /// ```
+    ///
+    /// # Semantics
+    ///
+    /// - `entity.X` must resolve to a valid entity declaration
+    /// - `[i]` must be an integer expression (evaluated at runtime)
+    /// - `.member` must be a valid member signal of that entity
+    /// - Value type must match member signal's type
+    ///
+    /// The value accumulates in a per-instance input buffer, which is drained
+    /// during the Resolve phase when the member signal computes its new value.
+    MemberSignalAssign {
+        /// Entity path (e.g., "terra.plate")
+        entity: Path,
+        /// Instance index expression (runtime-evaluated)
+        instance: E,
+        /// Member signal name
+        member: String,
+        /// Value to emit
+        value: E,
+        /// Source location
+        span: Span,
+    },
+
     /// Field assignment: `field.path <- position, value`
     ///
     /// Emits a positioned sample to a field.
@@ -209,6 +244,7 @@ impl<E: HasSpan> Stmt<E> {
         match self {
             Stmt::Let { span, .. } => *span,
             Stmt::SignalAssign { span, .. } => *span,
+            Stmt::MemberSignalAssign { span, .. } => *span,
             Stmt::FieldAssign { span, .. } => *span,
             Stmt::Expr(expr) => expr.span(),
             Stmt::Assert { span, .. } => *span,
@@ -401,6 +437,12 @@ pub trait StatementVisitor {
         match stmt {
             Stmt::Let { value, .. } => self.visit_expr(value),
             Stmt::SignalAssign { value, .. } => self.visit_expr(value),
+            Stmt::MemberSignalAssign {
+                instance, value, ..
+            } => {
+                self.visit_expr(instance);
+                self.visit_expr(value);
+            }
             Stmt::FieldAssign {
                 position, value, ..
             } => {

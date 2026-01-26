@@ -708,10 +708,42 @@ fn parse_if_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
 }
 
 /// Parse assignment statement.
+///
+/// Handles three patterns:
+/// 1. Signal assignment: `signal.path <- value`
+/// 2. Member signal assignment: `entity.X[i].member <- value`
+/// 3. Field assignment: `field.path <- position, value`
 fn parse_assignment_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
     let start = stream.current_pos();
 
+    // Parse the target path
     let target = super::types::parse_path(stream)?;
+
+    // Check for index (member signal pattern)
+    if matches!(stream.peek(), Some(Token::LBracket)) {
+        // Member signal assignment: entity.X[i].member <- value
+        stream.advance(); // consume '['
+        let instance = super::expr::parse_expr(stream)?;
+        stream.expect(Token::RBracket)?;
+
+        // Expect dot and member name
+        stream.expect(Token::Dot)?;
+        let member = super::helpers::expect_ident(stream, "member name after index")?;
+
+        // Expect arrow
+        stream.expect(Token::LeftArrow)?;
+
+        // Parse value
+        let value = super::expr::parse_expr(stream)?;
+
+        return Ok(Stmt::MemberSignalAssign {
+            entity: target,
+            instance,
+            member,
+            value,
+            span: stream.span_from(start),
+        });
+    }
 
     stream.expect(Token::LeftArrow)?;
 

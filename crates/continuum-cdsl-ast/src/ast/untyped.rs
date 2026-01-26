@@ -659,6 +659,24 @@ pub enum ExprKind {
         field: String,
     },
 
+    /// Index access into entity instances
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// entity.terra.plate[i]
+    /// entity.terra.plate[0]
+    /// ```
+    ///
+    /// The object must be an entity reference, and the index must be an integer
+    /// expression. This is used for accessing specific entity instances.
+    Index {
+        /// Expression being indexed (typically an entity reference)
+        object: Box<Expr>,
+        /// Index expression (must be integer type)
+        index: Box<Expr>,
+    },
+
     /// Parse error placeholder
     ///
     /// Allows parser to continue after encountering an error and report
