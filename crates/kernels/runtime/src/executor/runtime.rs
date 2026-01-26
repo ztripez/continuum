@@ -560,7 +560,8 @@ impl Runtime {
             // Initialize any remaining uninitialized signals with zero/default values
             // This ensures all signals have a prev value before the first Resolve phase
             use crate::dag::NodeKind;
-            let era_dags = self.dags.get_era(&self.current_era).unwrap();
+            let era_dags = self.dags.get_era(&self.current_era)
+                .ok_or_else(|| Error::UnknownEra { era: self.current_era.clone() })?;
             for dag in era_dags.for_phase(Phase::Resolve) {
                 for level in &dag.levels {
                     for node in &level.nodes {
@@ -888,7 +889,8 @@ impl Runtime {
     }
 
     fn check_era_transition(&mut self) -> Result<()> {
-        let era_config = self.eras.get(&self.current_era).unwrap();
+        let era_config = self.eras.get(&self.current_era)
+            .ok_or_else(|| Error::EraNotFound(self.current_era.clone()))?;
         if let Some(ref transition) = era_config.transition
             && let Some(next_era) = transition(&self.signals, &self.entities, self.sim_time)
         {

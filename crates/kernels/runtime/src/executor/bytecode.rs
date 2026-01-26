@@ -149,7 +149,9 @@ impl BytecodePhaseExecutor {
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Configure) {
@@ -350,7 +352,9 @@ impl BytecodePhaseExecutor {
         member_signals: &MemberSignalBuffer,
         input_channels: &mut InputChannels,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Collect) {
@@ -439,7 +443,9 @@ impl BytecodePhaseExecutor {
         assertion_checker: &mut AssertionChecker,
         breakpoints: &std::collections::HashSet<SignalId>,
     ) -> Result<Option<SignalId>> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Resolve) {
@@ -667,7 +673,9 @@ impl BytecodePhaseExecutor {
         member_signals: &MemberSignalBuffer,
         fracture_queue: &mut FractureQueue,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Fracture) {
@@ -741,7 +749,9 @@ impl BytecodePhaseExecutor {
         member_signals: &MemberSignalBuffer,
         field_buffer: &mut FieldBuffer,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         for dag in era_dags.for_phase(Phase::Measure) {
             let stratum_state = strata_states
@@ -822,7 +832,9 @@ impl BytecodePhaseExecutor {
         member_signals: &MemberSignalBuffer,
         event_buffer: &mut EventBuffer,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Measure) {

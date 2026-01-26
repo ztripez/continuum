@@ -86,11 +86,19 @@ impl RequestHandler for WorldGetHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        WorldResponse {
-            id: req.id,
-            ok: true,
-            payload: Some(serde_json::to_value(&state.compiled.world.metadata).unwrap()),
-            error: None,
+        match serde_json::to_value(&state.compiled.world.metadata) {
+            Ok(payload) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Failed to serialize world metadata: {}", e)),
+            },
         }
     }
 }
@@ -115,7 +123,10 @@ impl RequestHandler for RunStepHandler {
             }
         };
 
-        let mut rt = state.runtime.lock().unwrap();
+        let mut rt = state
+            .runtime
+            .lock()
+            .expect("runtime mutex poisoned - fatal error");
         for _ in 0..steps {
             if let Err(e) = rt.execute_tick() {
                 return WorldResponse {
@@ -274,7 +285,10 @@ impl RequestHandler for SignalGetHandler {
             }
         };
 
-        let rt = state.runtime.lock().unwrap();
+        let rt = state
+            .runtime
+            .lock()
+            .expect("runtime mutex poisoned - fatal error");
         let signal_path = continuum_runtime::types::SignalId::from(signal_id.to_string());
         let value = match rt.get_signal(&signal_path) {
             Some(v) => v,
@@ -581,7 +595,10 @@ impl RequestHandler for ImpulseEmitHandler {
             }
         };
 
-        let mut rt = state.runtime.lock().unwrap();
+        let mut rt = state
+            .runtime
+            .lock()
+            .expect("runtime mutex poisoned - fatal error");
         let impulse_path = continuum_runtime::types::ImpulseId::from(impulse_id.to_string());
         if let Err(e) = rt.inject_impulse_by_id(&impulse_path, payload_value) {
             return WorldResponse {
@@ -652,7 +669,10 @@ impl RequestHandler for AssertionFailuresHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        let rt = state.runtime.lock().unwrap();
+        let rt = state
+            .runtime
+            .lock()
+            .expect("runtime mutex poisoned - fatal error");
         let failures = rt.assertion_checker().failures();
 
         match serde_json::to_value(failures) {
@@ -680,7 +700,10 @@ impl RequestHandler for StatusHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        let rt = state.runtime.lock().unwrap();
+        let rt = state
+            .runtime
+            .lock()
+            .expect("runtime mutex poisoned - fatal error");
         let tick = rt.tick();
         let sim_time = rt.sim_time();
         let era = rt.era();

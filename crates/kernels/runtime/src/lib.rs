@@ -474,7 +474,8 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
             }
             
             // Validation 3: Type validation
-            let type_expr = config_types.get(&path).unwrap();
+            let type_expr = config_types.get(&path)
+                .expect("path must exist in config_types after validation 2");
             if !value_matches_type_expr(&value, type_expr) {
                 panic!(
                     "Scenario override for '{}' has incompatible type. \

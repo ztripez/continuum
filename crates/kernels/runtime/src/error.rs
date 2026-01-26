@@ -54,6 +54,17 @@ pub enum Error {
     #[error("era not found: {0}")]
     EraNotFound(EraId),
 
+    /// An era DAG was requested but not found in the compiled DAG set.
+    ///
+    /// This indicates a mismatch between the world definition and the
+    /// compiled execution graphs. All eras declared in the world should
+    /// have corresponding DAG structures.
+    #[error("unknown era in DAG lookup: {era}")]
+    UnknownEra {
+        /// The era ID that was not found in the DAG set.
+        era: EraId,
+    },
+
     /// A cycle was detected in the signal dependency graph.
     ///
     /// Signals must form a directed acyclic graph (DAG) for deterministic

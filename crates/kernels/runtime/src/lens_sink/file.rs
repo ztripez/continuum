@@ -154,7 +154,7 @@ impl LensSink for FileSink {
             run_id: self
                 .run_dir
                 .file_name()
-                .unwrap()
+                .expect("run_dir must have a filename component")
                 .to_string_lossy()
                 .to_string(),
             created_at: chrono::Local::now().to_rfc3339(),

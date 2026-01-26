@@ -55,7 +55,8 @@ pub(super) fn topological_levels(nodes: &[DagNode]) -> Result<Vec<Level>, CycleE
         let mut seen_signals: IndexSet<&SignalId> = IndexSet::new();
         for read_signal in &node.reads {
             if signal_to_node.contains_key(read_signal) && seen_signals.insert(read_signal) {
-                *in_degree.get_mut(&node.id).unwrap() += 1;
+                *in_degree.get_mut(&node.id)
+                    .expect("node.id must exist in in_degree map initialized from nodes") += 1;
                 dependents.entry(read_signal).or_default().push(node);
             }
         }
@@ -83,7 +84,8 @@ pub(super) fn topological_levels(nodes: &[DagNode]) -> Result<Vec<Level>, CycleE
                 && let Some(deps) = dependents.get(signal)
             {
                 for dep in deps {
-                    let degree = in_degree.get_mut(&dep.id).unwrap();
+                    let degree = in_degree.get_mut(&dep.id)
+                        .expect("dep.id must exist in in_degree map initialized from nodes");
                     *degree -= 1;
                     if *degree == 0 {
                         next_level.push(*dep);

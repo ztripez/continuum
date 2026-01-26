@@ -389,7 +389,11 @@ impl AlignedBuffer {
     pub unsafe fn push_raw(&mut self, value: *const u8) {
         self.reserve(1);
         unsafe {
-            let dst = self.ptr.unwrap().as_ptr().add(self.len_bytes);
+            let dst = self
+                .ptr
+                .expect("ptr must be Some after reserve")
+                .as_ptr()
+                .add(self.len_bytes);
             std::ptr::copy_nonoverlapping(value, dst, self.element_size);
         }
         self.len_bytes += self.element_size;
@@ -1437,7 +1441,9 @@ impl PopulationStorage {
 
     /// Set current signal value by instance ID.
     pub fn set_current(&mut self, instance_id: &str, signal: &str, value: Value) {
-        let idx = self.instance_index(instance_id).unwrap();
+        let idx = self
+            .instance_index(instance_id)
+            .expect("instance_id must exist in entity storage");
         let _ = self.signals.set_current(signal, idx, value);
     }
 

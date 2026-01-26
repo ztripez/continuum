@@ -135,8 +135,13 @@ impl MemberDag {
         }
 
         for edge in &self.edges {
-            *in_degree.get_mut(&edge.to).unwrap() += 1;
-            dependents.get_mut(&edge.from).unwrap().push(&edge.to);
+            *in_degree
+                .get_mut(&edge.to)
+                .expect("edge.to must exist in in_degree map initialized from members") += 1;
+            dependents
+                .get_mut(&edge.from)
+                .expect("edge.from must exist in dependents map initialized from members")
+                .push(&edge.to);
         }
 
         let mut levels: Vec<Vec<MemberSignalId>> = Vec::new();

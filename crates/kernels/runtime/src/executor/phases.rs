@@ -461,7 +461,9 @@ impl PhaseExecutor {
             handler(&mut ctx, &payload);
         }
 
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         for dag in era_dags.for_phase(Phase::Collect) {
             let stratum_state = strata_states
@@ -512,7 +514,9 @@ impl PhaseExecutor {
         assertion_checker: &mut AssertionChecker,
         breakpoints: &std::collections::HashSet<SignalId>,
     ) -> Result<Option<SignalId>> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         for dag in era_dags.for_phase(Phase::Resolve) {
             let stratum_state = strata_states
@@ -677,7 +681,9 @@ impl PhaseExecutor {
         entities: &EntityStorage,
         fracture_queue: &mut FractureQueue,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         // Collect all fracture indices across all DAGs and levels
         let all_fracture_indices: Vec<usize> = era_dags
@@ -776,7 +782,9 @@ impl PhaseExecutor {
         entities: &EntityStorage,
         field_buffer: &mut FieldBuffer,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         // Collect all eligible DAGs for parallel execution
         let eligible_dags: Vec<_> = era_dags
@@ -881,7 +889,9 @@ impl PhaseExecutor {
         entities: &EntityStorage,
         event_buffer: &mut EventBuffer,
     ) -> Result<()> {
-        let era_dags = dags.get_era(era).unwrap();
+        let era_dags = dags
+            .get_era(era)
+            .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
         // Collect all chronicle indices across all Measure DAGs
         let all_chronicle_indices: Vec<usize> = era_dags
