@@ -1124,11 +1124,15 @@ impl<'a> ExecutionContext for VMContext<'a> {
             );
 
             // Create the appropriate Value based on the signal type
+            // Look up member signal type using the full member path
+            let signal_id = SignalId::from(entity_ctx.target_member.clone());
             let result = if value == 0.0 {
                 // If no inputs were accumulated, return typed zero
-                // For member signals, we'd need to look up the type from the member signal definition
-                // For now, just return scalar 0.0
-                Value::Scalar(0.0)
+                if let Some(ty) = self.signal_types.get(&signal_id) {
+                    zero_value_for_type(ty)
+                } else {
+                    Value::Scalar(0.0)
+                }
             } else {
                 Value::Scalar(value)
             };
