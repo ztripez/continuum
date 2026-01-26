@@ -10,7 +10,7 @@ use super::utils::{from_na_mat2, from_na_mat3, from_na_mat4, to_na_mat2, to_na_m
 
 /// Sort eigenvalues in descending order by magnitude
 fn sort_eigenvalues_desc<const N: usize>(mut vals: [f64; N]) -> [f64; N] {
-    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    vals.sort_by(|a, b| b.partial_cmp(a).expect("eigenvalues must not be NaN"));
     vals
 }
 
@@ -101,7 +101,11 @@ pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
 
     let mat = na::Matrix3::from_column_slice(&arr.0);
     let eig = mat.symmetric_eigen();
-    let vals: [f64; 3] = eig.eigenvalues.as_slice().try_into().unwrap();
+    let vals: [f64; 3] = eig
+        .eigenvalues
+        .as_slice()
+        .try_into()
+        .expect("3x3 matrix must have exactly 3 eigenvalues");
     sort_eigenvalues_desc(vals)
 }
 
@@ -156,7 +160,11 @@ pub fn eigenvalues_mat4(arr: Mat4) -> [f64; 4] {
 
     let mat = na::Matrix4::from_column_slice(&arr.0);
     let eig = mat.symmetric_eigen();
-    let vals: [f64; 4] = eig.eigenvalues.as_slice().try_into().unwrap();
+    let vals: [f64; 4] = eig
+        .eigenvalues
+        .as_slice()
+        .try_into()
+        .expect("4x4 matrix must have exactly 4 eigenvalues");
     sort_eigenvalues_desc(vals)
 }
 
@@ -199,12 +207,17 @@ pub fn eigenvectors_mat2(m: Mat2) -> Mat2 {
         .iter()
         .zip(eig.eigenvectors.column_iter())
         .collect();
-    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).expect("eigenvalues must not be NaN"));
 
     let v0 = na::Vector2::from_iterator(pairs[0].1.iter().cloned());
     let v1 = na::Vector2::from_iterator(pairs[1].1.iter().cloned());
     let result = na::Matrix2::from_columns(&[v0, v1]);
-    Mat2(result.as_slice().try_into().unwrap())
+    Mat2(
+        result
+            .as_slice()
+            .try_into()
+            .expect("2x2 matrix must convert to [f64; 4]"),
+    )
 }
 
 /// Computes the eigenvectors of a symmetric 3x3 matrix.
@@ -253,13 +266,18 @@ pub fn eigenvectors_mat3(arr: Mat3) -> Mat3 {
         .iter()
         .zip(eig.eigenvectors.column_iter())
         .collect();
-    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).expect("eigenvalues must not be NaN"));
 
     let v0 = na::Vector3::from_iterator(pairs[0].1.iter().cloned());
     let v1 = na::Vector3::from_iterator(pairs[1].1.iter().cloned());
     let v2 = na::Vector3::from_iterator(pairs[2].1.iter().cloned());
     let result = na::Matrix3::from_columns(&[v0, v1, v2]);
-    Mat3(result.as_slice().try_into().unwrap())
+    Mat3(
+        result
+            .as_slice()
+            .try_into()
+            .expect("3x3 matrix must convert to [f64; 9]"),
+    )
 }
 
 /// Computes the eigenvectors of a symmetric 4x4 matrix.
@@ -320,14 +338,19 @@ pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
         .iter()
         .zip(eig.eigenvectors.column_iter())
         .collect();
-    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).expect("eigenvalues must not be NaN"));
 
     let v0 = na::Vector4::from_iterator(pairs[0].1.iter().cloned());
     let v1 = na::Vector4::from_iterator(pairs[1].1.iter().cloned());
     let v2 = na::Vector4::from_iterator(pairs[2].1.iter().cloned());
     let v3 = na::Vector4::from_iterator(pairs[3].1.iter().cloned());
     let result = na::Matrix4::from_columns(&[v0, v1, v2, v3]);
-    Mat4(result.as_slice().try_into().unwrap())
+    Mat4(
+        result
+            .as_slice()
+            .try_into()
+            .expect("4x4 matrix must convert to [f64; 16]"),
+    )
 }
 
 /// Computes the left singular vectors (U) of a 2x2 matrix.

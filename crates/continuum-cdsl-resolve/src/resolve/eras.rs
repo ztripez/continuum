@@ -242,7 +242,10 @@ fn dfs_cycle<'a>(
                 }
             } else if rec_stack.contains(&neighbor) {
                 // Found cycle - build cycle path
-                let start_idx = rec_stack.iter().position(|&n| n == neighbor).unwrap();
+                let start_idx = rec_stack
+                    .iter()
+                    .position(|&n| n == neighbor)
+                    .expect("neighbor must be in rec_stack (verified by contains check)");
                 let cycle_path: Vec<String> = rec_stack[start_idx..]
                     .iter()
                     .map(|id| id.as_str().to_string())

@@ -230,7 +230,9 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                 }
 
                 // Parse as struct literal
-                let ty = expr.as_path().unwrap(); // Safe: checked above
+                let ty = expr
+                    .as_path()
+                    .expect("expr must be a path (verified at line 213)");
                 let fields = parse_struct_fields(stream)?;
                 let span = expr.span;
 

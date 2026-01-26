@@ -294,7 +294,9 @@ fn build_dag(
         for node_path in &current_level {
             if let Some(dependents) = adj.get(node_path) {
                 for dep in dependents {
-                    let degree = in_degree.get_mut(dep).unwrap();
+                    let degree = in_degree
+                        .get_mut(dep)
+                        .expect("dependent node must exist in in_degree (graph invariant)");
                     *degree -= 1;
                     if *degree == 0 {
                         next_level.push(dep.clone());
@@ -326,7 +328,7 @@ fn build_dag(
                 panic!(
                     "BUG: Missing span for cycle node '{}' during cycle detection. \
                      All nodes must have spans registered before graph analysis.",
-                    cycle_path.first().unwrap()
+                    cycle_path.first().expect("cycle_path cannot be empty")
                 )
             });
 
@@ -353,7 +355,12 @@ fn build_dag(
                 } else {
                     error = error.with_label(
                         span,
-                        format!("depends on '{}'", cycle_path.get(i + 1).unwrap()),
+                        format!(
+                            "depends on '{}'",
+                            cycle_path
+                                .get(i + 1)
+                                .expect("i+1 must be valid (i < cycle_path.len() - 1)")
+                        ),
                     );
                 }
             }

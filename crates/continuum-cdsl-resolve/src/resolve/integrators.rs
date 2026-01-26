@@ -184,7 +184,10 @@ impl<'a> ExpressionVisitor for IntegrationCallVisitor<'a> {
             // Check if this is a dt.integrate_* kernel
             if kernel.namespace == "dt" && kernel.name.starts_with("integrate_") {
                 // Extract method from kernel name (e.g., "integrate_rk4" -> "rk4")
-                let method = kernel.name.strip_prefix("integrate_").unwrap();
+                let method = kernel
+                    .name
+                    .strip_prefix("integrate_")
+                    .expect("kernel name must have integrate_ prefix (verified by starts_with)");
 
                 // Skip generic dt.integrate() - allowed regardless of hint
                 if method.is_empty() {

@@ -230,7 +230,9 @@ fn project_hierarchical_entity<I: continuum_cdsl_ast::Index>(
     sorted_paths.sort();
 
     for path in sorted_paths {
-        let fields = type_fields.remove(&path).unwrap();
+        let fields = type_fields
+            .remove(&path)
+            .expect("path must exist in type_fields (came from keys())");
         let type_id = UserTypeId::from(path.to_string());
         type_table.register(UserType::new(type_id, path, fields));
     }

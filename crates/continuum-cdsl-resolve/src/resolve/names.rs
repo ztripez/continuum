@@ -326,7 +326,10 @@ impl Scope {
             !self.locals.is_empty(),
             "Cannot bind variable: no active scope exists"
         );
-        self.locals.last_mut().unwrap().insert(name);
+        self.locals
+            .last_mut()
+            .expect("locals cannot be empty (verified by assert)")
+            .insert(name);
     }
 
     /// Check if a local variable is in scope

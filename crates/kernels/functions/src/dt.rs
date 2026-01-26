@@ -383,8 +383,12 @@ pub fn relax_vectorized(
         let factor = 1.0 - (-dt / t).exp();
 
         if current.as_uniform().is_some() && target.as_uniform().is_some() {
-            let c = current.get_scalar(0).unwrap();
-            let tgt = target.get_scalar(0).unwrap();
+            let c = current
+                .get_scalar(0)
+                .ok_or("current must be uniform scalar")?;
+            let tgt = target
+                .get_scalar(0)
+                .ok_or("target must be uniform scalar")?;
             Ok(VRegBuffer::uniform_scalar(c + (tgt - c) * factor))
         } else {
             let c_arr = current
@@ -506,8 +510,8 @@ pub fn advance_phase_vectorized(
     let tau = std::f64::consts::TAU;
 
     if phase.as_uniform().is_some() && omega.as_uniform().is_some() {
-        let p = phase.get_scalar(0).unwrap();
-        let o = omega.get_scalar(0).unwrap();
+        let p = phase.get_scalar(0).ok_or("phase must be uniform scalar")?;
+        let o = omega.get_scalar(0).ok_or("omega must be uniform scalar")?;
         let result = (p + o * dt).rem_euclid(tau);
         Ok(VRegBuffer::uniform_scalar(result))
     } else {
@@ -541,8 +545,10 @@ pub fn damp_vectorized(
     let damping_factor = args[1];
 
     if value.as_uniform().is_some() && damping_factor.as_uniform().is_some() {
-        let v = value.get_scalar(0).unwrap();
-        let d = damping_factor.get_scalar(0).unwrap();
+        let v = value.get_scalar(0).ok_or("value must be uniform scalar")?;
+        let d = damping_factor
+            .get_scalar(0)
+            .ok_or("damping_factor must be uniform scalar")?;
         let factor = (1.0 - d * dt).max(0.0);
         Ok(VRegBuffer::uniform_scalar(v * factor))
     } else {
