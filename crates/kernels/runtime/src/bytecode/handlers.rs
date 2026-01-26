@@ -735,15 +735,59 @@ pub(crate) fn handle_emit(
 
 /// Emits a value to a specific entity instance's member signal.
 ///
+/// Decodes entity ID and member signal path from operands, pops instance index
+/// and value from the evaluation stack, validates the instance index is a
+/// non-negative integer, and dispatches the emission to the execution context.
+///
 /// # Operands
-/// - 0: Entity ID ([`Operand::Entity`])
+/// - 0: Entity type identifier ([`Operand::Entity`])
 /// - 1: Member signal path ([`Operand::Signal`])
 ///
 /// # Stack
-/// - [instance_idx: u32, value: T] → [ ]
+/// - [instance_idx: Integer, value: T] → [ ]
 ///
-/// Pops instance index and value from stack, accumulates value to
-/// the member signal input channel for that specific instance.
+/// # Behavior
+/// 1. Decodes entity ID from `operands[0]`
+/// 2. Decodes member signal path from `operands[1]`
+/// 3. Pops `value` from stack (any type - determined by member signal type)
+/// 4. Pops `instance_idx` from stack (must be Integer)
+/// 5. Validates `instance_idx >= 0`
+/// 6. Calls `ctx.emit_member_signal(entity, instance_idx, member_path, value)`
+///    which performs bounds checking and accumulates to per-instance input channel
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if:
+/// - Instance index is negative
+///
+/// Returns [`ExecutionError::TypeMismatch`] if:
+/// - Instance index is not Integer type
+///
+/// Additional errors may be returned by [`ExecutionContext::emit_member_signal`]:
+/// - Instance index out of bounds
+/// - Value type mismatch
+/// - Phase violation
+///
+/// # Phase Restrictions
+///
+/// Only valid in **Collect** and **Fracture** phases (enforced by opcode metadata).
+///
+/// # Examples
+///
+/// ```ignore
+/// // DSL syntax:
+/// emit entity.terra.plate[i].omega <- torque
+///
+/// // Stack state before handler:
+/// // [2, 1.5]  (instance_idx=2, torque=1.5)
+///
+/// // Stack state after handler:
+/// // []
+///
+/// // Effect:
+/// // Accumulates 1.5 to plate instance #2's omega member signal input channel.
+/// // During Resolve phase, instance #2's omega will sum all accumulated inputs.
+/// ```
 pub(crate) fn handle_emit_member(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
