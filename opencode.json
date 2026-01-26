@@ -1,0 +1,12 @@
+{
+  "lsp": {
+    "cdsl": {
+      "enabled": true,
+      "command": ["./target/release/cdsl-lsp"],
+      "filetypes": [".cdsl"],
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }
+  }
+}
