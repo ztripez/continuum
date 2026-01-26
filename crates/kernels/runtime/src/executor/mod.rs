@@ -71,8 +71,8 @@ pub use member_executor::{
     ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
 };
 pub use phases::{
-    ChronicleFn, CollectFn, EmittedEvent, FractureFn, ImpulseFn, MeasureFn, PhaseExecutor,
-    ResolverFn,
+    BoxedMemberResolver, ChronicleFn, CollectFn, DynMemberResolver, EmittedEvent, FractureFn,
+    ImpulseFn, MeasureFn, PhaseExecutor, ResolverFn, ScalarMemberResolver, Vec3MemberResolver,
 };
 pub use run::{run_simulation, CheckpointOptions, RunError, RunOptions, RunReport};
 pub use runtime::{AggregateResolverFn, EraConfig, Runtime, TransitionFn};

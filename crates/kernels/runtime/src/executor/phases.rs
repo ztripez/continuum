@@ -40,25 +40,185 @@ use crate::storage::{
 };
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
-use super::AggregateResolverFn;
 use super::assertions::AssertionChecker;
 use super::context::{
     ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
     ResolveContext,
 };
 use super::member_executor::{
-    ChunkConfig, ScalarResolverFn, Vec3ResolverFn, resolve_scalar_l1, resolve_vec3_l1,
+    resolve_scalar_l1, resolve_vec3_l1, ChunkConfig, ScalarResolveContext, ScalarResolverFn,
+    Vec3ResolveContext, Vec3ResolverFn,
 };
+use super::AggregateResolverFn;
 use crate::soa_storage::MemberSignalBuffer;
 
 /// Function that resolves a signal value
 pub type ResolverFn = Box<dyn Fn(&ResolveContext) -> Value + Send + Sync>;
 
-/// Member resolver variant (Scalar or Vec3)
-pub enum MemberResolver {
-    Scalar(ScalarResolverFn),
-    Vec3(Vec3ResolverFn),
+// ============================================================================
+// Dynamic Member Resolver Trait
+// ============================================================================
+
+/// Trait for member signal resolvers that can resolve all instances.
+///
+/// This trait abstracts over the value type (Scalar, Vec3, etc.) allowing
+/// dynamic dispatch without requiring match statements at call sites.
+///
+/// # Object Safety
+///
+/// This trait is object-safe and can be used with `Box<dyn DynMemberResolver>`.
+pub trait DynMemberResolver: Send + Sync {
+    /// Resolve all instances of a member signal and store results.
+    ///
+    /// # Arguments
+    ///
+    /// * `full_signal` - The full signal path (entity_id.signal_name)
+    /// * `signals` - Global signal storage (read-only)
+    /// * `entities` - Entity storage (read-only)
+    /// * `member_signals` - Member signal buffer (read-write for results)
+    /// * `dt` - Time step
+    /// * `sim_time` - Accumulated simulation time
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success, or an error message string on failure.
+    fn resolve_and_store(
+        &self,
+        full_signal: &str,
+        signals: &SignalStorage,
+        entities: &EntityStorage,
+        member_signals: &mut MemberSignalBuffer,
+        dt: Dt,
+        sim_time: f64,
+    ) -> std::result::Result<(), String>;
 }
+
+/// Scalar member resolver implementation.
+pub struct ScalarMemberResolver {
+    resolver: ScalarResolverFn,
+}
+
+impl ScalarMemberResolver {
+    /// Create a new scalar member resolver.
+    pub fn new(resolver: ScalarResolverFn) -> Self {
+        Self { resolver }
+    }
+}
+
+impl DynMemberResolver for ScalarMemberResolver {
+    fn resolve_and_store(
+        &self,
+        full_signal: &str,
+        signals: &SignalStorage,
+        entities: &EntityStorage,
+        member_signals: &mut MemberSignalBuffer,
+        dt: Dt,
+        sim_time: f64,
+    ) -> std::result::Result<(), String> {
+        let count = member_signals.instance_count_for_signal(full_signal);
+        let prev: Vec<f64> = (0..count)
+            .map(|i| {
+                member_signals
+                    .get_previous(full_signal, i)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing previous value for member signal '{}' at index {}",
+                            full_signal, i
+                        )
+                    })
+                    .as_scalar()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "member signal '{}' at index {} is not a scalar",
+                            full_signal, i
+                        )
+                    })
+            })
+            .collect();
+        let config = ChunkConfig::auto(count);
+        let values = resolve_scalar_l1(
+            &prev,
+            |ctx: &ScalarResolveContext| (self.resolver)(ctx),
+            signals,
+            entities,
+            member_signals,
+            dt,
+            sim_time,
+            config,
+        );
+        for (i, v) in values.into_iter().enumerate() {
+            if let Err(e) = member_signals.set_current(full_signal, i, Value::Scalar(v)) {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Vec3 member resolver implementation.
+pub struct Vec3MemberResolver {
+    resolver: Vec3ResolverFn,
+}
+
+impl Vec3MemberResolver {
+    /// Create a new Vec3 member resolver.
+    pub fn new(resolver: Vec3ResolverFn) -> Self {
+        Self { resolver }
+    }
+}
+
+impl DynMemberResolver for Vec3MemberResolver {
+    fn resolve_and_store(
+        &self,
+        full_signal: &str,
+        signals: &SignalStorage,
+        entities: &EntityStorage,
+        member_signals: &mut MemberSignalBuffer,
+        dt: Dt,
+        sim_time: f64,
+    ) -> std::result::Result<(), String> {
+        let count = member_signals.instance_count_for_signal(full_signal);
+        let prev: Vec<[f64; 3]> = (0..count)
+            .map(|i| {
+                member_signals
+                    .get_previous(full_signal, i)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing previous value for member signal '{}' at index {}",
+                            full_signal, i
+                        )
+                    })
+                    .as_vec3()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "member signal '{}' at index {} is not a Vec3",
+                            full_signal, i
+                        )
+                    })
+            })
+            .collect();
+        let config = ChunkConfig::auto(count);
+        let values = resolve_vec3_l1(
+            &prev,
+            |ctx: &Vec3ResolveContext| (self.resolver)(ctx),
+            signals,
+            entities,
+            member_signals,
+            dt,
+            sim_time,
+            config,
+        );
+        for (i, v) in values.into_iter().enumerate() {
+            if let Err(e) = member_signals.set_current(full_signal, i, Value::Vec3(v)) {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Boxed member resolver for use in PhaseExecutor.
+pub type BoxedMemberResolver = Box<dyn DynMemberResolver>;
 
 /// Function that executes a collect operator
 pub type CollectFn = Box<dyn Fn(&CollectContext) + Send + Sync>;
@@ -129,8 +289,8 @@ impl Default for FractureParallelConfig {
 pub struct PhaseExecutor {
     /// Resolver functions indexed by resolver_idx
     pub resolvers: Vec<ResolverFn>,
-    /// Member resolver functions
-    pub member_resolvers: Vec<MemberResolver>,
+    /// Member resolver functions (trait objects for type-erased dispatch)
+    pub member_resolvers: Vec<BoxedMemberResolver>,
     /// Aggregate resolver functions
     pub aggregate_resolvers: Vec<AggregateResolverFn>,
     /// Collect operator functions
@@ -200,11 +360,33 @@ impl PhaseExecutor {
         idx
     }
 
-    /// Register a member resolver function
-    pub fn register_member_resolver(&mut self, resolver: MemberResolver) -> usize {
+    /// Register a member resolver function.
+    ///
+    /// # Arguments
+    ///
+    /// * `resolver` - A boxed trait object implementing [`DynMemberResolver`]
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// executor.register_member_resolver(Box::new(ScalarMemberResolver::new(
+    ///     Box::new(|ctx| ctx.prev + 1.0)
+    /// )));
+    /// ```
+    pub fn register_member_resolver(&mut self, resolver: BoxedMemberResolver) -> usize {
         let idx = self.member_resolvers.len();
         self.member_resolvers.push(resolver);
         idx
+    }
+
+    /// Register a scalar member resolver (convenience method).
+    pub fn register_scalar_member_resolver(&mut self, resolver: ScalarResolverFn) -> usize {
+        self.register_member_resolver(Box::new(ScalarMemberResolver::new(resolver)))
+    }
+
+    /// Register a Vec3 member resolver (convenience method).
+    pub fn register_vec3_member_resolver(&mut self, resolver: Vec3ResolverFn) -> usize {
+        self.register_member_resolver(Box::new(Vec3MemberResolver::new(resolver)))
     }
 
     /// Register an aggregate resolver function
@@ -391,88 +573,22 @@ impl PhaseExecutor {
                 // but parallelize within each group.
 
                 // 1. Member Signal Resolution (Sequential over member types, parallel over instances)
+                // Uses trait dispatch to avoid match on value type variants.
                 for (member_signal, kernel_idx) in member_tasks {
                     let full_signal =
                         format!("{}.{}", member_signal.entity_id, member_signal.signal_name);
-                    let count = member_signals.instance_count_for_signal(&full_signal);
                     let resolver = &self.member_resolvers[kernel_idx];
 
-                    match resolver {
-                        MemberResolver::Scalar(f) => {
-                            let prev: Vec<f64> = (0..count)
-                                .map(|i| {
-                                    member_signals
-                                        .get_previous(&full_signal, i)
-                                        .unwrap_or_else(|| {
-                                            panic!(
-                                                "missing previous value for member signal '{}' at index {}",
-                                                full_signal, i
-                                            )
-                                        })
-                                        .as_scalar()
-                                        .unwrap_or_else(|| {
-                                            panic!(
-                                                "member signal '{}' at index {} is not a scalar",
-                                                full_signal, i
-                                            )
-                                        })
-                                })
-                                .collect();
-                            let config = ChunkConfig::auto(count);
-                            let values = resolve_scalar_l1(
-                                &prev,
-                                |ctx| f(ctx),
-                                signals,
-                                entities,
-                                member_signals,
-                                dt,
-                                sim_time,
-                                config,
-                            );
-                            for (i, v) in values.into_iter().enumerate() {
-                                member_signals
-                                    .set_current(&full_signal, i, Value::Scalar(v))
-                                    .map_err(|e| Error::ExecutionFailure { message: e })?;
-                            }
-                        }
-                        MemberResolver::Vec3(f) => {
-                            let prev: Vec<[f64; 3]> = (0..count)
-                                .map(|i| {
-                                    member_signals
-                                        .get_previous(&full_signal, i)
-                                        .unwrap_or_else(|| {
-                                            panic!(
-                                                "missing previous value for member signal '{}' at index {}",
-                                                full_signal, i
-                                            )
-                                        })
-                                        .as_vec3()
-                                        .unwrap_or_else(|| {
-                                            panic!(
-                                                "member signal '{}' at index {} is not a Vec3",
-                                                full_signal, i
-                                            )
-                                        })
-                                })
-                                .collect();
-                            let config = ChunkConfig::auto(count);
-                            let values = resolve_vec3_l1(
-                                &prev,
-                                |ctx| f(ctx),
-                                signals,
-                                entities,
-                                member_signals,
-                                dt,
-                                sim_time,
-                                config,
-                            );
-                            for (i, v) in values.into_iter().enumerate() {
-                                member_signals
-                                    .set_current(&full_signal, i, Value::Vec3(v))
-                                    .map_err(|e| Error::ExecutionFailure { message: e })?;
-                            }
-                        }
-                    }
+                    resolver
+                        .resolve_and_store(
+                            &full_signal,
+                            signals,
+                            entities,
+                            member_signals,
+                            dt,
+                            sim_time,
+                        )
+                        .map_err(|e| Error::ExecutionFailure { message: e })?;
                 }
 
                 // 2. Signal Resolution (Parallel)

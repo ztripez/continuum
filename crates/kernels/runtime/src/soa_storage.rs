@@ -1228,6 +1228,42 @@ impl MemberSignalBuffer {
         Some(self.vec3s.signal_slice_mut(meta.buffer_index))
     }
 
+    /// Get Vec2 slice for a signal.
+    pub fn vec2_slice(&self, signal: &str) -> Option<&[[f64; 2]]> {
+        let meta = self.registry.get(signal)?;
+        if !meta.value_type.is_vec2() {
+            return None;
+        }
+        Some(self.vec2s.signal_slice(meta.buffer_index))
+    }
+
+    /// Get mutable Vec2 slice for a signal.
+    pub fn vec2_slice_mut(&mut self, signal: &str) -> Option<&mut [[f64; 2]]> {
+        let meta = self.registry.get(signal)?.clone();
+        if !meta.value_type.is_vec2() {
+            return None;
+        }
+        Some(self.vec2s.signal_slice_mut(meta.buffer_index))
+    }
+
+    /// Get Vec4 slice for a signal.
+    pub fn vec4_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
+        let meta = self.registry.get(signal)?;
+        if !meta.value_type.is_vec4() {
+            return None;
+        }
+        Some(self.vec4s.signal_slice(meta.buffer_index))
+    }
+
+    /// Get mutable Vec4 slice for a signal.
+    pub fn vec4_slice_mut(&mut self, signal: &str) -> Option<&mut [[f64; 4]]> {
+        let meta = self.registry.get(signal)?.clone();
+        if !meta.value_type.is_vec4() {
+            return None;
+        }
+        Some(self.vec4s.signal_slice_mut(meta.buffer_index))
+    }
+
     /// Get Quat slice for a signal.
     pub fn quat_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
         let meta = self.registry.get(signal)?;

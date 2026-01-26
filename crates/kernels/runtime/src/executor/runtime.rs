@@ -386,8 +386,7 @@ impl Runtime {
     /// Register a scalar member resolver function
     pub fn register_member_resolver(&mut self, _signal_name: String, resolver: ScalarResolverFn) {
         tracing::debug!(signal = %_signal_name, "scalar member resolver registered");
-        self.phase_executor
-            .register_member_resolver(crate::executor::phases::MemberResolver::Scalar(resolver));
+        self.phase_executor.register_scalar_member_resolver(resolver);
     }
 
     /// Register a Vec3 member resolver function
@@ -397,8 +396,7 @@ impl Runtime {
         resolver: Vec3ResolverFn,
     ) {
         tracing::debug!(signal = %_signal_name, "vec3 member resolver registered");
-        self.phase_executor
-            .register_member_resolver(crate::executor::phases::MemberResolver::Vec3(resolver));
+        self.phase_executor.register_vec3_member_resolver(resolver);
     }
 
     /// Register an aggregate resolver

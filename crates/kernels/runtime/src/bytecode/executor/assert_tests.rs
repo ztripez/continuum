@@ -72,6 +72,16 @@ impl ExecutionContext for TestContext {
         Ok(())
     }
 
+    fn emit_member_signal(
+        &mut self,
+        _entity: &EntityId,
+        _instance_idx: u32,
+        _member_path: &Path,
+        _value: Value,
+    ) -> Result<(), ExecutionError> {
+        Ok(())
+    }
+
     fn emit_field(
         &mut self,
         _target: &Path,
