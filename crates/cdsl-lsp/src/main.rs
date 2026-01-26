@@ -51,65 +51,186 @@ struct Backend {
     client: Client,
     workspace_roots: RwLock<Vec<Url>>,
     documents: DashMap<Url, String>,
-    /// Compiled worlds - pure transport, no shadow structures
-    worlds: DashMap<Url, World>,
+    /// Compiled worlds mapped by world root directory - pure transport, no shadow structures
+    /// Key: world root path, Value: compiled World
+    worlds: DashMap<PathBuf, World>,
 }
 
 impl Backend {
-    /// Parse a document and publish diagnostics.
-    async fn parse_and_publish_diagnostics(&self, uri: Url, text: &str) {
+    /// Get the compiled world for a given file URI.
+    /// 
+    /// This finds the world root for the file and returns the cached compiled world.
+    fn get_world_for_uri(&self, uri: &Url) -> Option<dashmap::mapref::one::Ref<PathBuf, World>> {
+        let path = uri.to_file_path().ok()?;
+        let world_root = self.find_world_root(&path)?;
+        self.worlds.get(&world_root)
+    }
+
+    /// Find the world root directory for a given file.
+    /// 
+    /// A world root is a directory containing either:
+    /// - A `world.yaml` file, OR
+    /// - A `.cdsl` file with a `world` declaration
+    /// 
+    /// We search upwards from the file's directory until we find one.
+    fn find_world_root(&self, file_path: &Path) -> Option<PathBuf> {
+        let mut current = file_path.parent()?;
+        
+        loop {
+            // Check for world.yaml
+            if current.join("world.yaml").exists() {
+                return Some(current.to_path_buf());
+            }
+            
+            // Check for any .cdsl file with world declaration
+            if let Ok(entries) = std::fs::read_dir(current) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == "cdsl") {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            // Simple check for "world" declaration
+                            if content.contains("world ") {
+                                return Some(current.to_path_buf());
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Move up to parent directory
+            current = current.parent()?;
+        }
+    }
+    
+    /// Collect all .cdsl files in a world directory tree.
+    fn collect_world_files(&self, world_root: &Path) -> IndexMap<PathBuf, String> {
+        let mut sources = IndexMap::new();
+        
+        for entry in WalkDir::new(world_root)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if entry.path().extension().is_some_and(|e| e == "cdsl") {
+                if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                    sources.insert(entry.path().to_path_buf(), content);
+                }
+            }
+        }
+        
+        sources
+    }
+
+    /// Parse a document and publish diagnostics for entire world.
+    /// 
+    /// When any file in a world changes, we recompile the ENTIRE world
+    /// (all .cdsl files in the world root directory tree) and distribute
+    /// diagnostics back to each file.
+    async fn parse_and_publish_diagnostics(&self, uri: Url, _text: &str) {
         let path = match uri.to_file_path() {
             Ok(p) => p,
             Err(_) => return,
         };
 
-        // Compile from memory using new API
-        let mut sources = IndexMap::new();
-        sources.insert(path.clone(), text.to_string());
-
-        let compile_result = compile_from_memory(sources);
-
-        let diagnostics: Vec<Diagnostic> = match compile_result {
-            Ok(compiled_world) => {
-                // Success - store the World
-                self.worlds.insert(uri.clone(), compiled_world.world);
-                Vec::new() // No errors
-            }
-            Err((source_map, errors)) => {
-                // Compilation failed - convert errors to LSP diagnostics
-                errors
-                    .iter()
-                    .filter_map(|error| {
-                        // Get the source file for this error
-                        let file = source_map.file(&error.span);
-                        
-                        // Only show errors from the current file
-                        if file.path != path {
-                            return None;
-                        }
-
-                        // Convert engine span (byte offsets) to LSP positions (line/col)
-                        let (start_line, start_char) = offset_to_position(text, error.span.start as usize);
-                        let (end_line, end_char) = offset_to_position(text, error.span.end as usize);
-
-                        Some(Diagnostic {
-                            range: Range {
-                                start: Position::new(start_line, start_char),
-                                end: Position::new(end_line, end_char),
-                            },
-                            severity: Some(DiagnosticSeverity::ERROR),
-                            source: Some("cdsl".to_string()),
-                            message: error.message.clone(),
-                            ..Default::default()
-                        })
-                    })
-                    .collect()
+        // Find the world root for this file
+        let world_root = match self.find_world_root(&path) {
+            Some(root) => root,
+            None => {
+                // No world root found - treat as standalone file for now
+                self.client.log_message(MessageType::WARNING, format!(
+                    "No world root found for {}, treating as standalone file", 
+                    path.display()
+                )).await;
+                return;
             }
         };
 
-        self.client
-            .publish_diagnostics(uri.clone(), diagnostics, None)
-            .await;
+        // Collect all .cdsl files in the world
+        let sources = self.collect_world_files(&world_root);
+        
+        if sources.is_empty() {
+            self.client.log_message(MessageType::WARNING, 
+                format!("No .cdsl files found in world root {}", world_root.display())
+            ).await;
+            return;
+        }
+
+        self.client.log_message(MessageType::INFO, 
+            format!("Compiling world at {} with {} files", world_root.display(), sources.len())
+        ).await;
+
+        // Compile the entire world
+        let compile_result = compile_from_memory(sources);
+
+        match compile_result {
+            Ok(compiled_world) => {
+                // Success - store the compiled world
+                self.worlds.insert(world_root.clone(), compiled_world.world);
+                
+                // Clear diagnostics for all files in this world
+                for path in self.collect_world_files(&world_root).keys() {
+                    if let Ok(file_uri) = Url::from_file_path(path) {
+                        self.client
+                            .publish_diagnostics(file_uri, vec![], None)
+                            .await;
+                    }
+                }
+            }
+            Err((source_map, errors)) => {
+                // Compilation failed - group diagnostics by file
+                let mut diagnostics_by_file: std::collections::HashMap<PathBuf, Vec<Diagnostic>> = 
+                    std::collections::HashMap::new();
+                
+                for error in errors {
+                    // Get the source file for this error
+                    let file = source_map.file(&error.span);
+                    let file_path = file.path.clone();
+                    
+                    // Read the file content to convert byte offsets to line/col
+                    let file_content = match std::fs::read_to_string(&file_path) {
+                        Ok(content) => content,
+                        Err(_) => continue,
+                    };
+                    
+                    // Convert engine span (byte offsets) to LSP positions (line/col)
+                    let (start_line, start_char) = offset_to_position(&file_content, error.span.start as usize);
+                    let (end_line, end_char) = offset_to_position(&file_content, error.span.end as usize);
+
+                    let diagnostic = Diagnostic {
+                        range: Range {
+                            start: Position::new(start_line, start_char),
+                            end: Position::new(end_line, end_char),
+                        },
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        source: Some("cdsl".to_string()),
+                        message: error.message.clone(),
+                        ..Default::default()
+                    };
+                    
+                    diagnostics_by_file.entry(file_path).or_default().push(diagnostic);
+                }
+                
+                // Publish diagnostics for each file
+                for (file_path, diagnostics) in &diagnostics_by_file {
+                    if let Ok(file_uri) = Url::from_file_path(file_path) {
+                        self.client
+                            .publish_diagnostics(file_uri, diagnostics.clone(), None)
+                            .await;
+                    }
+                }
+                
+                // Clear diagnostics for files with no errors
+                for path in self.collect_world_files(&world_root).keys() {
+                    if !diagnostics_by_file.contains_key(path) {
+                        if let Ok(file_uri) = Url::from_file_path(path) {
+                            self.client
+                                .publish_diagnostics(file_uri, vec![], None)
+                                .await;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Scan workspace for all .cdsl files and index them.
@@ -152,13 +273,11 @@ impl Backend {
             Err(_) => return,
         };
 
-        // Compile the file using new API
-        let mut sources = IndexMap::new();
-        sources.insert(path.to_path_buf(), text);
-
-        if let Ok(compiled_world) = compile_from_memory(sources) {
-            self.worlds.insert(uri, compiled_world.world);
-        }
+        // Store the document text for later use
+        self.documents.insert(uri, text);
+        
+        // Note: We don't compile individual files during indexing anymore.
+        // Compilation happens when files are opened/changed and compiles the entire world.
     }
 
     /// Check if the workspace has a world definition.
@@ -277,7 +396,9 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.remove(&uri);
-        self.worlds.remove(&uri);
+        
+        // Note: We don't remove worlds on file close since worlds are shared
+        // across all files in the world directory. Worlds are cached by root path.
 
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
@@ -294,7 +415,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -345,7 +466,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -392,7 +513,7 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position.text_document.uri;
         let _position = params.text_document_position.position;
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -473,7 +594,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -558,7 +679,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -606,7 +727,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -688,18 +809,31 @@ impl LanguageServer for Backend {
 
         // Search all indexed worlds
         for entry in self.worlds.iter() {
-            let uri = entry.key().clone();
+            let world_root = entry.key();
             let world = entry.value();
 
-            let doc = match self.documents.get(&uri) {
-                Some(doc) => doc.clone(),
-                None => continue,
-            };
-
+            // For each node in the world, find its file and create a symbol
             // Search globals
             for (_path, node) in world.globals.iter() {
                 let path_str = node.path.to_string().to_lowercase();
                 if query.is_empty() || path_str.contains(&query) {
+                    // Get the file for this node
+                    let node_file = match &node.file {
+                        Some(f) => f,
+                        None => continue,
+                    };
+                    
+                    // Read the file to convert spans
+                    let doc = match std::fs::read_to_string(node_file) {
+                        Ok(content) => content,
+                        Err(_) => continue,
+                    };
+                    
+                    let uri = match Url::from_file_path(node_file) {
+                        Ok(u) => u,
+                        Err(_) => continue,
+                    };
+                    
                     let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
                     let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
 
@@ -721,30 +855,9 @@ impl LanguageServer for Backend {
                 }
             }
 
-            // Search entities
-            for (_path, entity) in world.entities.iter() {
-                let path_str = entity.path.to_string().to_lowercase();
-                if query.is_empty() || path_str.contains(&query) {
-                    let (start_line, start_char) = offset_to_position(&doc, entity.span.start as usize);
-                    let (end_line, end_char) = offset_to_position(&doc, entity.span.end as usize);
-
-                    #[allow(deprecated)]
-                    results.push(SymbolInformation {
-                        name: entity.path.to_string(),
-                        kind: SymbolKind::CLASS,
-                        tags: None,
-                        deprecated: None,
-                        location: Location {
-                            uri: uri.clone(),
-                            range: Range {
-                                start: Position::new(start_line, start_char),
-                                end: Position::new(end_line, end_char),
-                            },
-                        },
-                        container_name: Some("entity".to_string()),
-                    });
-                }
-            }
+            // TODO: Search entities
+            // Entities don't have file field, need SourceMap to resolve their locations
+            // For now, we only search globals and members which have file information
         }
 
         // Sort by relevance (exact prefix matches first)
@@ -771,7 +884,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -837,7 +950,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
@@ -877,7 +990,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let world = match self.worlds.get(uri) {
+        let world = match self.get_world_for_uri(uri) {
             Some(world) => world,
             None => return Ok(None),
         };
