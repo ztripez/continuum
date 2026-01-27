@@ -29,42 +29,43 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
 
   // Update status from tick events
   useEffect(() => {
-    if (tickInfo) {
-      // Use new execution_state if available
-      if (tickInfo.execution_state) {
-        setSimStatus(tickInfo.execution_state as SimStatus);
-      } else if (tickInfo.running !== undefined) {
-        // Fallback to legacy 'running' field
-        setSimStatus(tickInfo.running ? 'running' : 'stopped');
+    if (!tickInfo) return;
+
+    // Backend always emits execution_state (stopped/running/paused/error)
+    if (tickInfo.execution_state) {
+      setSimStatus(tickInfo.execution_state as SimStatus);
+    }
+    
+    // Track warmup separately - warmup is a phase, not a state
+    // If running and warmup not complete, show warmup status
+    if (tickInfo.warmup_complete !== undefined) {
+      setWarmupComplete(tickInfo.warmup_complete);
+      if (!tickInfo.warmup_complete && tickInfo.execution_state === 'running') {
+        setSimStatus('warmup');
       }
-      
-      if (tickInfo.warmup_complete !== undefined) {
-        setWarmupComplete(tickInfo.warmup_complete);
-        if (!tickInfo.warmup_complete && tickInfo.execution_state !== 'stopped') {
-          setSimStatus('warmup');
-        }
-      }
-      
-      if (tickInfo.last_error) {
-        setLastError(tickInfo.last_error);
-      }
-      
-      if (tickInfo.tick_rate !== undefined) {
-        setTickRate(tickInfo.tick_rate);
-      }
+    }
+    
+    if (tickInfo.last_error) {
+      setLastError(tickInfo.last_error);
+    }
+    
+    if (tickInfo.tick_rate !== undefined) {
+      setTickRate(tickInfo.tick_rate);
     }
   }, [tickInfo]);
 
+  // Fetch initial status on connect
   useEffect(() => {
     if (ws.status !== 'connected') return;
 
     ws.sendRequest('status').then((payload: any) => {
-      setWarmupComplete(payload.warmup_complete ?? true);
-      
+      // Backend always emits execution_state
       if (payload.execution_state) {
         setSimStatus(payload.execution_state);
-      } else if (payload.running !== undefined) {
-        setSimStatus(payload.running ? 'running' : 'stopped');
+      }
+      
+      if (payload.warmup_complete !== undefined) {
+        setWarmupComplete(payload.warmup_complete);
       }
       
       if (payload.tick_rate !== undefined) {
@@ -74,7 +75,10 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
       if (payload.last_error) {
         setLastError(payload.last_error);
       }
-    }).catch(console.error);
+    }).catch((err: any) => {
+      setLastError(err.message || 'Failed to fetch status');
+      setSimStatus('error');
+    });
   }, [ws.status]);
 
   const handleStep = () => {
