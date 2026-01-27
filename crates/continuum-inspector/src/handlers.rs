@@ -2,6 +2,7 @@
 
 use crate::helpers::{into_api_response, wait_for_condition};
 use crate::process::{kill_simulation, spawn_simulation};
+use crate::spawner::RealProcessSpawner;
 use crate::state::{ApiResponse, AppState, LoadSimulationRequest, SimulationStatusResponse};
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -57,7 +58,8 @@ pub async fn load_simulation_handler(
 
     // Spawn new simulation
     let world_path = payload.world_path.clone();
-    let result = spawn_simulation(&state, world_path.clone(), payload.scenario).await;
+    let spawner = RealProcessSpawner;
+    let result = spawn_simulation(&spawner, &state, world_path.clone(), payload.scenario).await;
     
     if result.is_ok() {
         *state.current_world.lock().await = Some(world_path.clone());
@@ -138,7 +140,8 @@ pub async fn restart_simulation_handler(State(state): State<AppState>) -> impl I
     .ok(); // Non-fatal if socket lingers
 
     // Respawn
-    let result = spawn_simulation(&state, world_path, None).await;
+    let spawner = RealProcessSpawner;
+    let result = spawn_simulation(&spawner, &state, world_path, None).await;
     into_api_response(result, |_| "Simulation restarted".to_string())
 }
 

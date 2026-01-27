@@ -7,6 +7,7 @@
 mod handlers;
 mod helpers;
 mod process;
+mod spawner;
 mod state;
 mod websocket;
 
@@ -17,6 +18,7 @@ use handlers::{
     stop_simulation_handler,
 };
 use process::{kill_simulation, spawn_simulation};
+use spawner::RealProcessSpawner;
 use state::AppState;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -73,7 +75,8 @@ async fn main() {
     // If a world was provided at startup, launch it
     if let Some(world_path) = cli.world {
         info!("Auto-launching world: {}", world_path.display());
-        if let Err(err) = spawn_simulation(&state, world_path, None).await {
+        let spawner = RealProcessSpawner;
+        if let Err(err) = spawn_simulation(&spawner, &state, world_path, None).await {
             error!("Failed to auto-launch world: {err}");
         }
     }

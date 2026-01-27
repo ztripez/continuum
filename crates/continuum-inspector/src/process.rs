@@ -1,14 +1,15 @@
 //! Simulation process management: spawning and terminating `continuum-run`.
 
 use crate::helpers::wait_for_condition;
+use crate::spawner::ProcessSpawner;
 use crate::state::AppState;
 use std::path::PathBuf;
-use tokio::process::Command;
 use tracing::{error, info, warn};
 
 /// Spawns a new `continuum-run` process for the given world and waits for socket readiness.
 ///
 /// # Parameters
+/// - `spawner`: Process spawning strategy (real or mock)
 /// - `state`: Shared application state (holds child process handle and socket path)
 /// - `world_path`: Path to world directory or `.cvm` bundle to load
 /// - `scenario`: Optional scenario name to pass via `--scenario` flag
@@ -19,8 +20,8 @@ use tracing::{error, info, warn};
 ///
 /// # Process
 /// 1. Removes old socket file if present
-/// 2. Builds `continuum-run <world> --socket <path> [--scenario <name>]` command
-/// 3. Spawns process and stores `Child` handle in `state.child`
+/// 2. Uses `spawner` trait to spawn process
+/// 3. Stores `Child` handle in `state.child`
 /// 4. Waits up to 5 seconds for socket file to appear
 /// 5. Kills process and returns error if socket doesn't appear (startup failure)
 ///
@@ -33,7 +34,9 @@ use tracing::{error, info, warn};
 /// # Notes
 /// - Socket timeout indicates process startup failure; check `continuum-run` logs
 /// - Process is killed automatically if socket timeout occurs (cleanup safety)
-pub async fn spawn_simulation(
+/// - Use `RealProcessSpawner` for production, `MockProcessSpawner` for tests
+pub async fn spawn_simulation<S: ProcessSpawner>(
+    spawner: &S,
     state: &AppState,
     world_path: PathBuf,
     scenario: Option<String>,
@@ -46,18 +49,12 @@ pub async fn spawn_simulation(
             .map_err(|e| format!("Failed to remove old socket: {e}"))?;
     }
 
-    // Build command
-    let mut cmd = Command::new("continuum-run");
-    cmd.arg(&world_path).arg("--socket").arg(&state.socket);
-
-    if let Some(scenario_name) = scenario {
-        cmd.arg("--scenario").arg(scenario_name);
-    }
-
-    // Spawn process
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn continuum-run: {e}"))?;
+    // Spawn process using injected spawner
+    let child = spawner.spawn_continuum_run(
+        &world_path,
+        &state.socket,
+        scenario.as_deref(),
+    )?;
 
     *state.child.lock().await = Some(child);
 
