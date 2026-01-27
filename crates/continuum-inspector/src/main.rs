@@ -277,6 +277,38 @@ async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
     info!("WebSocket connection closed");
 }
 
+// === Helper Functions ===
+
+/// Waits for a condition to become true, polling at 100ms intervals.
+///
+/// Returns `Ok(())` if the condition becomes true within the timeout period.
+/// Returns `Err` with the provided error message if the timeout is exceeded.
+///
+/// # Parameters
+/// - `condition`: Closure that returns `true` when the wait condition is satisfied
+/// - `timeout_ms`: Maximum time to wait in milliseconds
+/// - `error_msg`: Error message to return on timeout
+async fn wait_for_condition<F>(
+    condition: F,
+    timeout_ms: u64,
+    error_msg: &str,
+) -> Result<(), String>
+where
+    F: Fn() -> bool,
+{
+    let iterations = timeout_ms / 100;
+    for i in 0..iterations {
+        if condition() {
+            return Ok(());
+        }
+        if i == iterations - 1 {
+            return Err(error_msg.to_string());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    unreachable!("wait_for_condition loop exited without return")
+}
+
 // === Process Management Handlers ===
 
 async fn load_simulation_handler(
@@ -298,12 +330,13 @@ async fn load_simulation_handler(
     }
 
     // Wait for socket to be removed
-    for _ in 0..10 {
-        if !state.socket.exists() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    wait_for_condition(
+        || !state.socket.exists(),
+        1000,
+        "Socket file not removed after kill (1s timeout)",
+    )
+    .await
+    .ok(); // Non-fatal if socket lingers
 
     // Spawn new simulation
     match spawn_simulation(&state, payload.world_path.clone(), payload.scenario).await {
@@ -386,12 +419,13 @@ async fn restart_simulation_handler(State(state): State<AppState>) -> impl IntoR
     }
 
     // Wait for socket cleanup
-    for _ in 0..10 {
-        if !state.socket.exists() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    wait_for_condition(
+        || !state.socket.exists(),
+        1000,
+        "Socket file not removed after kill (1s timeout)",
+    )
+    .await
+    .ok(); // Non-fatal if socket lingers
 
     // Respawn
     match spawn_simulation(&state, world_path, None).await {
@@ -460,26 +494,20 @@ async fn spawn_simulation(
     *state.child.lock().await = Some(child);
 
     // Wait for socket to exist (5 second timeout)
-    for i in 0..50 {
-        if state.socket.exists() {
-            info!("Socket ready: {}", state.socket.display());
-            return Ok(());
+    if let Err(_) = wait_for_condition(|| state.socket.exists(), 5000, "timeout").await {
+        // Kill the process since it failed to create socket
+        if let Err(e) = kill_simulation(state).await {
+            error!("Failed to kill unresponsive process: {e}");
         }
-        if i == 49 {
-            // Kill the process since it failed to create socket
-            if let Err(e) = kill_simulation(state).await {
-                error!("Failed to kill unresponsive process: {e}");
-            }
-            return Err(format!(
-                "Timeout waiting for continuum-run to create socket at {}. \
-                 Process may have failed to start - check process logs.",
-                state.socket.display()
-            ));
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        return Err(format!(
+            "Timeout waiting for continuum-run to create socket at {}. \
+             Process may have failed to start - check process logs.",
+            state.socket.display()
+        ));
     }
 
-    unreachable!("Socket wait loop exited without return")
+    info!("Socket ready: {}", state.socket.display());
+    Ok(())
 }
 
 async fn kill_simulation(state: &AppState) -> Result<(), String> {
