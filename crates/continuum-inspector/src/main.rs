@@ -344,6 +344,45 @@ where
     unreachable!("wait_for_condition loop exited without return")
 }
 
+/// Converts a `Result` into an HTTP API response with consistent error handling.
+///
+/// # Parameters
+/// - `result`: Operation result to convert
+/// - `success_msg`: Message to return on success (supports closures for dynamic messages)
+///
+/// # Returns
+/// - `200 OK` with `ApiResponse { success: true, message }` on `Ok`
+/// - `500 INTERNAL_SERVER_ERROR` with `ApiResponse { success: false, message }` on `Err`
+///
+/// Errors are logged via `tracing::error!` before being returned.
+fn into_api_response<T, F>(
+    result: Result<T, String>,
+    success_msg: F,
+) -> (StatusCode, Json<ApiResponse>)
+where
+    F: FnOnce(&T) -> String,
+{
+    match result {
+        Ok(val) => (
+            StatusCode::OK,
+            Json(ApiResponse {
+                success: true,
+                message: success_msg(&val),
+            }),
+        ),
+        Err(err) => {
+            error!("API error: {err}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse {
+                    success: false,
+                    message: err,
+                }),
+            )
+        }
+    }
+}
+
 // === Process Management Handlers ===
 
 async fn load_simulation_handler(
@@ -374,55 +413,25 @@ async fn load_simulation_handler(
     .ok(); // Non-fatal if socket lingers
 
     // Spawn new simulation
-    match spawn_simulation(&state, payload.world_path.clone(), payload.scenario).await {
-        Ok(()) => {
-            *state.current_world.lock().await = Some(payload.world_path.clone());
-            (
-                StatusCode::OK,
-                Json(ApiResponse {
-                    success: true,
-                    message: format!("Loaded world: {}", payload.world_path.display()),
-                }),
-            )
-        }
-        Err(err) => {
-            error!("Failed to spawn simulation: {err}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse {
-                    success: false,
-                    message: format!("Failed to start simulation: {err}"),
-                }),
-            )
-        }
+    let world_path = payload.world_path.clone();
+    let result = spawn_simulation(&state, world_path.clone(), payload.scenario).await;
+    
+    if result.is_ok() {
+        *state.current_world.lock().await = Some(world_path.clone());
     }
+    
+    into_api_response(result, |_| format!("Loaded world: {}", world_path.display()))
 }
 
 async fn stop_simulation_handler(State(state): State<AppState>) -> impl IntoResponse {
     info!("Stop simulation request");
 
-    match kill_simulation(&state).await {
-        Ok(()) => {
-            *state.current_world.lock().await = None;
-            (
-                StatusCode::OK,
-                Json(ApiResponse {
-                    success: true,
-                    message: "Simulation stopped".to_string(),
-                }),
-            )
-        }
-        Err(err) => {
-            error!("Failed to stop simulation: {err}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse {
-                    success: false,
-                    message: format!("Failed to stop simulation: {err}"),
-                }),
-            )
-        }
+    let result = kill_simulation(&state).await;
+    if result.is_ok() {
+        *state.current_world.lock().await = None;
     }
+
+    into_api_response(result, |_| "Simulation stopped".to_string())
 }
 
 async fn restart_simulation_handler(State(state): State<AppState>) -> impl IntoResponse {
@@ -463,25 +472,8 @@ async fn restart_simulation_handler(State(state): State<AppState>) -> impl IntoR
     .ok(); // Non-fatal if socket lingers
 
     // Respawn
-    match spawn_simulation(&state, world_path, None).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(ApiResponse {
-                success: true,
-                message: "Simulation restarted".to_string(),
-            }),
-        ),
-        Err(err) => {
-            error!("Failed to restart simulation: {err}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse {
-                    success: false,
-                    message: format!("Failed to restart simulation: {err}"),
-                }),
-            )
-        }
-    }
+    let result = spawn_simulation(&state, world_path, None).await;
+    into_api_response(result, |_| "Simulation restarted".to_string())
 }
 
 async fn simulation_status_handler(State(state): State<AppState>) -> impl IntoResponse {
