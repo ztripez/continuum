@@ -18,6 +18,8 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
   const [simStatus, setSimStatus] = useState<SimStatus>('stopped');
   const [warmupComplete, setWarmupComplete] = useState<boolean>(true);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [tickRate, setTickRate] = useState<number>(60); // Default 60 tps
+  const [showTickRateControl, setShowTickRateControl] = useState(false);
 
   useEffect(() => {
     if (hasErrors) {
@@ -25,15 +27,52 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
     }
   }, [hasErrors]);
 
+  // Update status from tick events
+  useEffect(() => {
+    if (tickInfo) {
+      // Use new execution_state if available
+      if (tickInfo.execution_state) {
+        setSimStatus(tickInfo.execution_state as SimStatus);
+      } else if (tickInfo.running !== undefined) {
+        // Fallback to legacy 'running' field
+        setSimStatus(tickInfo.running ? 'running' : 'stopped');
+      }
+      
+      if (tickInfo.warmup_complete !== undefined) {
+        setWarmupComplete(tickInfo.warmup_complete);
+        if (!tickInfo.warmup_complete && tickInfo.execution_state !== 'stopped') {
+          setSimStatus('warmup');
+        }
+      }
+      
+      if (tickInfo.last_error) {
+        setLastError(tickInfo.last_error);
+      }
+      
+      if (tickInfo.tick_rate !== undefined) {
+        setTickRate(tickInfo.tick_rate);
+      }
+    }
+  }, [tickInfo]);
+
   useEffect(() => {
     if (ws.status !== 'connected') return;
 
     ws.sendRequest('status').then((payload: any) => {
       setWarmupComplete(payload.warmup_complete ?? true);
-      if (!payload.warmup_complete) {
-        setSimStatus('warmup');
-      } else {
+      
+      if (payload.execution_state) {
+        setSimStatus(payload.execution_state);
+      } else if (payload.running !== undefined) {
         setSimStatus(payload.running ? 'running' : 'stopped');
+      }
+      
+      if (payload.tick_rate !== undefined) {
+        setTickRate(payload.tick_rate);
+      }
+      
+      if (payload.last_error) {
+        setLastError(payload.last_error);
       }
     }).catch(console.error);
   }, [ws.status]);
@@ -59,13 +98,31 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
     if (!warmupComplete) {
       setSimStatus('warmup');
     }
-    ws.sendRequest('run')
+    ws.sendRequest('run', { tick_rate: tickRate })
       .then((payload: any) => {
         setWarmupComplete(payload.warmup_complete ?? true);
         setSimStatus('running');
       })
       .catch((err: any) => {
         setLastError(err.message || 'Run failed');
+        setSimStatus('error');
+      });
+  };
+
+  const handlePause = () => {
+    ws.sendRequest('pause')
+      .then(() => setSimStatus('paused'))
+      .catch((err: any) => {
+        setLastError(err.message || 'Pause failed');
+        setSimStatus('error');
+      });
+  };
+
+  const handleResume = () => {
+    ws.sendRequest('resume')
+      .then(() => setSimStatus('running'))
+      .catch((err: any) => {
+        setLastError(err.message || 'Resume failed');
         setSimStatus('error');
       });
   };
@@ -107,6 +164,14 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
             {showSimControl ? 'Hide' : 'Sim'} Controls
           </button>
           <button 
+            onClick={() => setShowTickRateControl(!showTickRateControl)}
+            class="control-btn"
+            title="Tick rate control"
+          >
+            <span class="icon">⏱</span>
+            {tickRate === 0 ? '∞' : tickRate} tps
+          </button>
+          <button 
             onClick={handleStep} 
             disabled={simStatus === 'running'}
             class="control-btn"
@@ -115,18 +180,38 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
             <span class="icon">⏭</span>
             Step
           </button>
-          <button 
-            onClick={handleRun} 
-            disabled={simStatus === 'running'} 
-            class="control-btn primary"
-            title="Run simulation"
-          >
-            <span class="icon">▶</span>
-            Run
-          </button>
+          {simStatus === 'running' ? (
+            <button 
+              onClick={handlePause} 
+              class="control-btn"
+              title="Pause simulation"
+            >
+              <span class="icon">⏸</span>
+              Pause
+            </button>
+          ) : simStatus === 'paused' || simStatus === 'error' ? (
+            <button 
+              onClick={handleResume} 
+              class="control-btn primary"
+              title="Resume simulation"
+            >
+              <span class="icon">▶</span>
+              Resume
+            </button>
+          ) : (
+            <button 
+              onClick={handleRun} 
+              disabled={simStatus === 'running'} 
+              class="control-btn primary"
+              title="Run simulation"
+            >
+              <span class="icon">▶</span>
+              Run
+            </button>
+          )}
           <button 
             onClick={handleStop} 
-            disabled={simStatus === 'stopped' || simStatus === 'error'} 
+            disabled={simStatus === 'stopped'} 
             class="control-btn danger"
             title="Stop simulation"
           >
@@ -160,6 +245,48 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
           </div>
         </div>
       </header>
+      
+      {simStatus === 'error' && lastError && (
+        <div class="error-banner">
+          <span class="error-icon">⚠</span>
+          <span class="error-message">Error: {lastError}</span>
+          <button 
+            onClick={handleResume}
+            class="control-btn primary"
+            title="Resume from error"
+          >
+            Resume
+          </button>
+        </div>
+      )}
+      
+      {showTickRateControl && (
+        <div class="tick-rate-panel">
+          <label class="tick-rate-label">
+            Tick Rate: {tickRate === 0 ? 'Unlimited' : `${tickRate} tps`}
+          </label>
+          <input 
+            type="range" 
+            min="0" 
+            max="120" 
+            step="1"
+            value={tickRate}
+            onInput={(e) => {
+              const val = parseInt((e.target as HTMLInputElement).value);
+              setTickRate(val);
+            }}
+            class="tick-rate-slider"
+          />
+          <div class="tick-rate-presets">
+            <button onClick={() => setTickRate(1)} class="preset-btn">1</button>
+            <button onClick={() => setTickRate(10)} class="preset-btn">10</button>
+            <button onClick={() => setTickRate(30)} class="preset-btn">30</button>
+            <button onClick={() => setTickRate(60)} class="preset-btn">60</button>
+            <button onClick={() => setTickRate(120)} class="preset-btn">120</button>
+            <button onClick={() => setTickRate(0)} class="preset-btn">∞</button>
+          </div>
+        </div>
+      )}
       
       {showSimControl && (
         <div class="sim-control-panel">

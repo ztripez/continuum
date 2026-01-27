@@ -908,3 +908,127 @@ button.small {
   font-style: italic;
   margin-bottom: 0.5rem;
 }
+
+/* Error Banner */
+.error-banner {
+  background: rgba(239, 68, 68, 0.15);
+  border-bottom: 2px solid var(--danger);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.error-icon {
+  font-size: 1.5rem;
+  color: var(--danger);
+}
+
+.error-message {
+  flex: 1;
+  color: var(--danger);
+  font-weight: 500;
+}
+
+/* Tick Rate Control Panel */
+.tick-rate-panel {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  animation: slideDown 0.3s ease-out;
+}
+
+.tick-rate-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tick-rate-slider {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.tick-rate-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--primary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.tick-rate-slider::-webkit-slider-thumb:hover {
+  background: #3b82f6;
+}
+
+.tick-rate-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--primary);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s;
+}
+
+.tick-rate-slider::-moz-range-thumb:hover {
+  background: #3b82f6;
+}
+
+.tick-rate-presets {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.preset-btn {
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.preset-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+/* Paused status */
+.sim-status-paused {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.sim-status-paused .sim-status-indicator {
+  background: var(--warning);
+  animation: none;
+}

@@ -93,6 +93,11 @@ export interface TickEvent {
   field_count: number;
   event_count: number;
   phase: string;
+  execution_state?: 'stopped' | 'running' | 'paused' | 'error';
+  tick_rate?: number;
+  last_error?: string;
+  warmup_complete?: boolean;
+  running?: boolean; // Legacy field for backward compat
 }
 
 export interface AssertionEvent {
