@@ -23,16 +23,13 @@ where
     F: Fn() -> bool,
 {
     let iterations = timeout_ms / 100;
-    for i in 0..iterations {
+    for _ in 0..iterations {
         if condition() {
             return Ok(());
         }
-        if i == iterations - 1 {
-            return Err(error_msg.to_string());
-        }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    unreachable!("wait_for_condition loop exited without return")
+    Err(error_msg.to_string())
 }
 
 /// Converts a `Result` into an HTTP API response with consistent error handling.

@@ -69,8 +69,10 @@ async fn spawn_simulation_test<S: ProcessSpawner>(
 
     // Wait for socket (5s timeout)
     if let Err(_) = wait_for_condition(|| state.socket.exists(), 5000, "timeout").await {
-        if let Err(e) = kill_simulation_test(state).await {
-            eprintln!("Failed to kill unresponsive process: {e}");
+        if let Err(kill_err) = kill_simulation_test(state).await {
+            panic!(
+                "Spawn timeout AND kill failed: {kill_err}. Possible zombie process in test."
+            );
         }
         return Err(format!(
             "Timeout waiting for socket at {}",

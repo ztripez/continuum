@@ -61,7 +61,7 @@ pub async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
                         "Failed to connect to socket {} after 10 attempts: {err}",
                         state.socket.display()
                     );
-                    let _ = websocket
+                    if let Err(send_err) = websocket
                         .send(Message::Text(
                             serde_json::json!({
                                 "id": 0,
@@ -69,7 +69,10 @@ pub async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
                             })
                             .to_string(),
                         ))
-                        .await;
+                        .await
+                    {
+                        warn!("Failed to send socket connection error to browser: {send_err}");
+                    }
                     return;
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;

@@ -105,7 +105,7 @@ pub mod mock {
         pub fn spawned_processes(&self) -> Vec<(PathBuf, PathBuf, Option<String>)> {
             self.spawned_processes
                 .lock()
-                .unwrap()
+                .expect("MockProcessSpawner spawned_processes mutex poisoned")
                 .iter()
                 .map(|p| {
                     (
@@ -119,7 +119,7 @@ pub mod mock {
 
         /// Changes the mock behavior (for multi-stage tests).
         pub fn set_behavior(&self, behavior: MockBehavior) {
-            *self.behavior.lock().unwrap() = behavior;
+            *self.behavior.lock().expect("MockProcessSpawner behavior mutex poisoned") = behavior;
         }
     }
 
@@ -131,13 +131,20 @@ pub mod mock {
             scenario: Option<&str>,
         ) -> Result<Child, String> {
             // Record spawn attempt
-            self.spawned_processes.lock().unwrap().push(SpawnedProcess {
-                world_path: world_path.clone(),
-                socket_path: socket_path.clone(),
-                scenario: scenario.map(|s| s.to_string()),
-            });
+            self.spawned_processes
+                .lock()
+                .expect("MockProcessSpawner spawned_processes mutex poisoned")
+                .push(SpawnedProcess {
+                    world_path: world_path.clone(),
+                    socket_path: socket_path.clone(),
+                    scenario: scenario.map(|s| s.to_string()),
+                });
 
-            let behavior = self.behavior.lock().unwrap().clone();
+            let behavior = self
+                .behavior
+                .lock()
+                .expect("MockProcessSpawner behavior mutex poisoned")
+                .clone();
 
             match behavior {
                 MockBehavior::SpawnFails { error } => Err(error),
@@ -148,9 +155,9 @@ pub mod mock {
                         tokio::time::sleep(tokio::time::Duration::from_millis(socket_delay_ms))
                             .await;
                         // Create socket file
-                        if let Err(e) = tokio::fs::File::create(&socket_path).await {
-                            eprintln!("Mock failed to create socket: {e}");
-                        }
+                        tokio::fs::File::create(&socket_path).await.expect(
+                            "MockProcessSpawner failed to create socket file - check test temp dir permissions"
+                        );
                     }))
                 }
                 MockBehavior::NeverCreatesSocket => {
@@ -186,6 +193,11 @@ pub mod mock {
         Command::new("sleep")
             .arg("3600")
             .spawn()
-            .expect("Failed to spawn mock sleep process")
+            .unwrap_or_else(|e| {
+                panic!(
+                    "MockProcessSpawner: Failed to spawn sleep process for mock behavior. \
+                     Error: {e}. Check system resources and PATH."
+                )
+            })
     }
 }

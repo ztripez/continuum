@@ -107,8 +107,15 @@ async fn main() {
         if let Err(e) = kill_simulation(&shutdown_state).await {
             error!("Failed to kill simulation during shutdown: {e}");
         }
-        if let Err(e) = std::fs::remove_file(&shutdown_state.socket) {
-            warn!("Failed to remove socket during shutdown: {e}");
+        match std::fs::remove_file(&shutdown_state.socket) {
+            Ok(_) => info!("Socket removed successfully"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                info!("Socket already removed")
+            }
+            Err(e) => {
+                error!("CRITICAL: Failed to remove socket during shutdown: {e}");
+                std::process::exit(1);
+            }
         }
         info!("Shutdown complete");
         std::process::exit(0);

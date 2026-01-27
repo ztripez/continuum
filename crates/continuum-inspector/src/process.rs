@@ -61,8 +61,13 @@ pub async fn spawn_simulation<S: ProcessSpawner>(
     // Wait for socket to exist (5 second timeout)
     if let Err(_) = wait_for_condition(|| state.socket.exists(), 5000, "timeout").await {
         // Kill the process since it failed to create socket
-        if let Err(e) = kill_simulation(state).await {
-            error!("Failed to kill unresponsive process: {e}");
+        if let Err(kill_err) = kill_simulation(state).await {
+            error!("Failed to kill unresponsive process: {kill_err}");
+            return Err(format!(
+                "Timeout waiting for continuum-run to create socket at {} AND failed to kill process: {kill_err}. \
+                 Check for zombie processes.",
+                state.socket.display()
+            ));
         }
         return Err(format!(
             "Timeout waiting for continuum-run to create socket at {}. \

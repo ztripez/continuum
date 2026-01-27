@@ -8,7 +8,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// POST `/api/sim/load` - Loads a world and spawns `continuum-run` process.
 ///
@@ -48,13 +48,15 @@ pub async fn load_simulation_handler(
     }
 
     // Wait for socket to be removed
-    wait_for_condition(
+    if let Err(e) = wait_for_condition(
         || !state.socket.exists(),
         1000,
         "Socket file not removed after kill (1s timeout)",
     )
     .await
-    .ok(); // Non-fatal if socket lingers
+    {
+        warn!("Socket cleanup timeout (proceeding anyway): {e}");
+    }
 
     // Spawn new simulation
     let world_path = payload.world_path.clone();
@@ -131,13 +133,15 @@ pub async fn restart_simulation_handler(State(state): State<AppState>) -> impl I
     }
 
     // Wait for socket cleanup
-    wait_for_condition(
+    if let Err(e) = wait_for_condition(
         || !state.socket.exists(),
         1000,
         "Socket file not removed after kill (1s timeout)",
     )
     .await
-    .ok(); // Non-fatal if socket lingers
+    {
+        warn!("Socket cleanup timeout (proceeding anyway): {e}");
+    }
 
     // Respawn
     let spawner = RealProcessSpawner;
