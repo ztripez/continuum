@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info};
+use walkdir::WalkDir;
 
 pub struct ContinuumDebugAdapter {
     session: Arc<Mutex<Option<DebugSession>>>,
@@ -122,20 +123,18 @@ impl ContinuumDebugAdapter {
                     }
                 };
 
-                // Extract sources from compiled world (from source_map)
-                // TODO: We need access to the source map to get source contents
-                // For now, we'll read files directly as a workaround
+                // Collect all .cdsl source files recursively in the world directory
+                // These are needed for breakpoint line number resolution
                 let mut sources = HashMap::new();
-                for entry in std::fs::read_dir(&world_path).map_err(|e| {
-                    error!("Failed to read world directory: {}", e);
-                    e
-                }).ok().into_iter().flatten() {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.extension().map_or(false, |ext| ext == "cdsl") {
-                            if let Ok(content) = std::fs::read_to_string(&path) {
-                                sources.insert(path, content);
-                            }
+                for entry in WalkDir::new(&world_path)
+                    .follow_links(true)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                {
+                    let path = entry.path();
+                    if path.extension().map_or(false, |ext| ext == "cdsl") {
+                        if let Ok(content) = std::fs::read_to_string(path) {
+                            sources.insert(path.to_path_buf(), content);
                         }
                     }
                 }
