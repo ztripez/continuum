@@ -3,12 +3,24 @@ use crate::world_api::{WorldRequest, WorldResponse};
 use continuum_cdsl::ast::{CompiledWorld, RoleId};
 use continuum_runtime::Runtime;
 use indexmap::IndexMap;
-use std::sync::Mutex;
+use std::sync::{atomic::AtomicU32, Mutex, RwLock};
+
+/// Execution state of the simulation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionState {
+    Stopped,
+    Running,
+    Paused,
+    Error, // Paused due to error
+}
 
 /// Shared state for request handlers.
 pub struct ServerState {
     pub compiled: CompiledWorld,
     pub runtime: Mutex<Runtime>,
+    pub execution_state: RwLock<ExecutionState>,
+    pub tick_rate: AtomicU32, // ticks per second (0 = unlimited)
+    pub last_error: RwLock<Option<String>>,
 }
 
 /// Trait for handling specific IPC request types.
@@ -35,6 +47,10 @@ impl RequestRouter {
         // Register all handlers
         router.register(Box::new(WorldGetHandler));
         router.register(Box::new(RunStepHandler));
+        router.register(Box::new(RunHandler));
+        router.register(Box::new(StopHandler));
+        router.register(Box::new(PauseHandler));
+        router.register(Box::new(ResumeHandler));
         router.register(Box::new(SignalListHandler));
         router.register(Box::new(SignalDescribeHandler));
         router.register(Box::new(SignalGetHandler));
@@ -46,6 +62,9 @@ impl RequestRouter {
         router.register(Box::new(ImpulseEmitHandler));
         router.register(Box::new(AssertionListHandler));
         router.register(Box::new(AssertionFailuresHandler));
+        router.register(Box::new(CheckpointSaveHandler));
+        router.register(Box::new(CheckpointLoadHandler));
+        router.register(Box::new(CheckpointListHandler));
         router.register(Box::new(StatusHandler));
 
         router
@@ -708,10 +727,24 @@ impl RequestHandler for StatusHandler {
         let sim_time = rt.sim_time();
         let era = rt.era();
 
+        let execution_state = *state.execution_state.read().expect("rwlock poisoned");
+        let tick_rate = state.tick_rate.load(std::sync::atomic::Ordering::Relaxed);
+        let last_error = state.last_error.read().expect("rwlock poisoned").clone();
+
+        let exec_state_str = match execution_state {
+            ExecutionState::Stopped => "stopped",
+            ExecutionState::Running => "running",
+            ExecutionState::Paused => "paused",
+            ExecutionState::Error => "error",
+        };
+
         match serde_json::to_value(serde_json::json!({
             "tick": tick,
             "sim_time": sim_time,
             "era": era,
+            "execution_state": exec_state_str,
+            "tick_rate": tick_rate,
+            "last_error": last_error,
         })) {
             Ok(payload) => WorldResponse {
                 id: req.id,
@@ -725,6 +758,346 @@ impl RequestHandler for StatusHandler {
                 payload: None,
                 error: Some(format!("Serialization error: {}", e)),
             },
+        }
+    }
+}
+
+// ============================================================================
+// Execution Control Handlers
+// ============================================================================
+
+struct RunHandler;
+
+impl RequestHandler for RunHandler {
+    fn kind(&self) -> &'static str {
+        "run"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        // Set tick_rate if provided
+        if let Some(tick_rate) = req.payload.get("tick_rate").and_then(|v| v.as_u64()) {
+            state
+                .tick_rate
+                .store(tick_rate as u32, std::sync::atomic::Ordering::Relaxed);
+        }
+
+        // Transition state to Running
+        {
+            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
+            *exec_state = ExecutionState::Running;
+        }
+
+        // Clear any previous error
+        {
+            let mut last_error = state.last_error.write().expect("rwlock poisoned");
+            *last_error = None;
+        }
+
+        WorldResponse {
+            id: req.id,
+            ok: true,
+            payload: Some(serde_json::json!({"message": "Simulation started"})),
+            error: None,
+        }
+    }
+}
+
+struct StopHandler;
+
+impl RequestHandler for StopHandler {
+    fn kind(&self) -> &'static str {
+        "stop"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        // Transition state to Stopped
+        {
+            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
+            *exec_state = ExecutionState::Stopped;
+        }
+
+        WorldResponse {
+            id: req.id,
+            ok: true,
+            payload: Some(serde_json::json!({"message": "Simulation stopped"})),
+            error: None,
+        }
+    }
+}
+
+struct PauseHandler;
+
+impl RequestHandler for PauseHandler {
+    fn kind(&self) -> &'static str {
+        "pause"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        // Transition state to Paused
+        {
+            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
+            // Only allow pause from Running state
+            if *exec_state == ExecutionState::Running {
+                *exec_state = ExecutionState::Paused;
+            } else {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Cannot pause: simulation not running".to_string()),
+                };
+            }
+        }
+
+        WorldResponse {
+            id: req.id,
+            ok: true,
+            payload: Some(serde_json::json!({"message": "Simulation paused"})),
+            error: None,
+        }
+    }
+}
+
+struct ResumeHandler;
+
+impl RequestHandler for ResumeHandler {
+    fn kind(&self) -> &'static str {
+        "resume"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        // Transition state from Paused/Error back to Running
+        {
+            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
+            match *exec_state {
+                ExecutionState::Paused | ExecutionState::Error => {
+                    *exec_state = ExecutionState::Running;
+                }
+                ExecutionState::Running => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some("Cannot resume: already running".to_string()),
+                    };
+                }
+                ExecutionState::Stopped => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some("Cannot resume: simulation stopped (use 'run' instead)".to_string()),
+                    };
+                }
+            }
+        }
+
+        // Clear error if resuming from error state
+        {
+            let mut last_error = state.last_error.write().expect("rwlock poisoned");
+            *last_error = None;
+        }
+
+        WorldResponse {
+            id: req.id,
+            ok: true,
+            payload: Some(serde_json::json!({"message": "Simulation resumed"})),
+            error: None,
+        }
+    }
+}
+
+// ============================================================================
+// Checkpoint Handlers
+// ============================================================================
+
+/// Default checkpoint directory
+fn default_checkpoint_dir() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".continuum")
+        .join("checkpoints")
+}
+
+/// Generate default checkpoint filename
+fn default_checkpoint_path(world_name: &str, tick: u64) -> std::path::PathBuf {
+    default_checkpoint_dir().join(format!("{}-tick-{}.ckpt", world_name, tick))
+}
+
+struct CheckpointSaveHandler;
+
+impl RequestHandler for CheckpointSaveHandler {
+    fn kind(&self) -> &'static str {
+        "checkpoint.save"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        // Must be stopped or paused to save
+        let exec_state = *state.execution_state.read().expect("rwlock poisoned");
+        if exec_state == ExecutionState::Running {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some("Cannot save checkpoint while running (pause first)".to_string()),
+            };
+        }
+
+        let path = req
+            .payload
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                let rt = state.runtime.lock().expect("runtime mutex poisoned");
+                let world_name = &state.compiled.world.metadata.path;
+                default_checkpoint_path(&world_name.to_string(), rt.tick())
+            });
+
+        // Ensure directory exists
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some(format!("Failed to create checkpoint directory: {}", e)),
+                };
+            }
+        }
+
+        // Request checkpoint (uses runtime's checkpoint writer)
+        let rt = state.runtime.lock().expect("runtime mutex poisoned");
+        match rt.request_checkpoint(&path) {
+            Ok(()) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(
+                    serde_json::json!({"path": path.display().to_string(), "message": "Checkpoint requested"}),
+                ),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Failed to request checkpoint: {}", e)),
+            },
+        }
+    }
+}
+
+struct CheckpointLoadHandler;
+
+impl RequestHandler for CheckpointLoadHandler {
+    fn kind(&self) -> &'static str {
+        "checkpoint.load"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        // Must be stopped to load
+        let exec_state = *state.execution_state.read().expect("rwlock poisoned");
+        if exec_state != ExecutionState::Stopped {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some("Must stop simulation before loading checkpoint".to_string()),
+            };
+        }
+
+        let path = match req.payload.get("path").and_then(|v| v.as_str()) {
+            Some(p) => std::path::Path::new(p),
+            None => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Missing 'path' parameter".to_string()),
+                };
+            }
+        };
+
+        // Load checkpoint from disk
+        let checkpoint = match continuum_runtime::checkpoint::load_checkpoint(path) {
+            Ok(ckpt) => ckpt,
+            Err(e) => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some(format!("Failed to load checkpoint: {}", e)),
+                };
+            }
+        };
+
+        // Restore into runtime
+        let mut rt = state.runtime.lock().expect("runtime mutex poisoned");
+        match rt.restore_from_checkpoint(checkpoint) {
+            Ok(()) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(serde_json::json!({
+                    "tick": rt.tick(),
+                    "sim_time": rt.sim_time(),
+                    "era": rt.era().to_string(),
+                    "message": "Checkpoint loaded successfully"
+                })),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Failed to restore checkpoint: {}", e)),
+            },
+        }
+    }
+}
+
+struct CheckpointListHandler;
+
+impl RequestHandler for CheckpointListHandler {
+    fn kind(&self) -> &'static str {
+        "checkpoint.list"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        let checkpoint_dir = default_checkpoint_dir();
+
+        if !checkpoint_dir.exists() {
+            return WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(serde_json::json!({"checkpoints": []})),
+                error: None,
+            };
+        }
+
+        let mut checkpoints = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(&checkpoint_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |ext| ext == "ckpt") {
+                    if let Ok(metadata) = entry.metadata() {
+                        checkpoints.push(serde_json::json!({
+                            "path": path.display().to_string(),
+                            "size": metadata.len(),
+                            "modified": metadata.modified().ok().and_then(|t| {
+                                t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+                            }),
+                        }));
+                    }
+                }
+            }
+        }
+
+        WorldResponse {
+            id: req.id,
+            ok: true,
+            payload: Some(serde_json::json!({"checkpoints": checkpoints})),
+            error: None,
         }
     }
 }

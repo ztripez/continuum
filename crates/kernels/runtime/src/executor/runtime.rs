@@ -1071,6 +1071,59 @@ impl Runtime {
 
         Ok(())
     }
+
+    /// Restore simulation state from a checkpoint.
+    ///
+    /// # Errors
+    /// - Returns error if world IR hash doesn't match (different world)
+    /// - Returns error if era configurations don't match
+    pub fn restore_from_checkpoint(
+        &mut self,
+        checkpoint: crate::checkpoint::Checkpoint,
+    ) -> Result<()> {
+        // Validate world IR hash
+        if let Some(ref our_hash) = self.world_ir_hash {
+            if checkpoint.header.world_ir_hash != *our_hash {
+                return Err(Error::Checkpoint(format!(
+                    "World IR mismatch: checkpoint={:?}, current={:?}",
+                    checkpoint.header.world_ir_hash,
+                    our_hash
+                )));
+            }
+        }
+
+        // Restore core state
+        self.tick = checkpoint.header.tick;
+        self.sim_time = checkpoint.header.sim_time;
+        self.current_era = checkpoint.header.current_era.clone();
+
+        // Restore signal storage
+        self.signals = checkpoint.state.signals;
+
+        // Restore entity storage
+        self.entities = checkpoint.state.entities;
+
+        // Restore member signals (SoA buffer)
+        checkpoint
+            .state
+            .member_signals
+            .restore_into_buffer(&mut self.member_signals)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        // TODO: Restore stratum states
+        // Note: checkpoint::StratumState (struct) differs from foundation::StratumState (enum)
+        // Need to implement conversion between the two types
+        // For now, stratum states are not restored (they will reset to default)
+
+        info!(
+            tick = self.tick,
+            sim_time = self.sim_time,
+            era = %self.current_era,
+            "Checkpoint restored"
+        );
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
