@@ -44,12 +44,27 @@ struct Cli {
     static_dir: Option<PathBuf>,
 }
 
+/// Shared application state for the Inspector web server and simulation manager.
+///
+/// Holds the Unix socket path for IPC with `continuum-run`, a handle to the spawned
+/// simulation process, and the path to the currently loaded world. All mutable state
+/// is guarded by async mutexes to support concurrent HTTP/WebSocket handlers.
+///
+/// Implements `Clone` via `Arc` cloning to share state across Axum handlers.
 struct AppState {
+    /// Path to Unix socket used for IPC with the simulation process
     socket: PathBuf,
+    /// Handle to the spawned `continuum-run` child process, if running
     child: Arc<Mutex<Option<Child>>>,
+    /// Path to the currently loaded world directory or .cvm bundle
     current_world: Arc<Mutex<Option<PathBuf>>>,
 }
 
+/// Clones `AppState` by cloning `Arc` pointers, not the underlying data.
+///
+/// This allows multiple Axum handlers to share the same mutex-guarded state
+/// without deep-copying the `Child` or `current_world`. The `socket` path
+/// is cloned as an owned `PathBuf`.
 impl Clone for AppState {
     fn clone(&self) -> Self {
         Self {
@@ -60,21 +75,41 @@ impl Clone for AppState {
     }
 }
 
+/// HTTP request payload for `/api/sim/load` endpoint.
+///
+/// Specifies the world to load and optionally a scenario name. The inspector will
+/// kill any existing simulation, spawn `continuum-run` with the provided world,
+/// and establish IPC via Unix socket.
 #[derive(Debug, Deserialize)]
 struct LoadSimulationRequest {
+    /// Absolute or relative path to a world directory or `.cvm` bundle
     world_path: PathBuf,
+    /// Optional scenario name to pass to `continuum-run --scenario`
     scenario: Option<String>,
 }
 
+/// Standard JSON response structure for simulation control API endpoints.
+///
+/// Returned by `/api/sim/load`, `/api/sim/stop`, and `/api/sim/restart`.
+/// Indicates success/failure and provides a human-readable message for logging
+/// or display in the frontend.
 #[derive(Debug, Serialize)]
 struct ApiResponse {
+    /// Whether the requested operation succeeded
     success: bool,
+    /// Human-readable status or error message
     message: String,
 }
 
+/// HTTP response payload for `/api/sim/status` endpoint.
+///
+/// Reports whether a simulation is currently running and the path to the loaded world.
+/// Used by the frontend to synchronize UI state (e.g., enable/disable Load/Stop buttons).
 #[derive(Debug, Serialize)]
 struct SimulationStatusResponse {
+    /// True if `continuum-run` process is spawned and the socket exists
     running: bool,
+    /// Path to the currently loaded world, if any
     world_path: Option<PathBuf>,
 }
 
@@ -465,6 +500,30 @@ async fn simulation_status_handler(State(state): State<AppState>) -> impl IntoRe
 
 // === Helper Functions ===
 
+/// Spawns `continuum-run` as a child process and waits for IPC socket to be created.
+///
+/// # Parameters
+/// - `state`: Shared application state (for socket path and child handle storage)
+/// - `world_path`: Path to world directory or `.cvm` bundle
+/// - `scenario`: Optional scenario name to pass via `--scenario` arg
+///
+/// # Returns
+/// - `Ok(())` if process spawned and socket created within 5 seconds
+/// - `Err(String)` with human-readable error message if spawn or socket wait fails
+///
+/// # Process
+/// 1. Removes stale Unix socket file if present
+/// 2. Builds command: `continuum-run <world_path> --socket <socket> [--scenario <scenario>]`
+/// 3. Spawns process and stores `Child` handle in `state.child`
+/// 4. Waits for socket existence (100ms polls, 5 second timeout)
+/// 5. Kills spawned process and returns `Err` if socket not created within timeout
+///
+/// # Errors
+/// Returns error string if:
+/// - Old socket file removal fails (filesystem permission error)
+/// - `continuum-run` binary not found in PATH
+/// - Process spawn fails (e.g., executable not found, permission denied)
+/// - Socket not created within 5 second timeout (implies process crash or hang)
 async fn spawn_simulation(
     state: &AppState,
     world_path: PathBuf,
@@ -510,6 +569,33 @@ async fn spawn_simulation(
     Ok(())
 }
 
+/// Gracefully terminates the running simulation process and cleans up IPC socket.
+///
+/// # Parameters
+/// - `state`: Shared application state containing child process handle and socket path
+///
+/// # Returns
+/// - `Ok(())` if process killed and socket removed, or no process was running
+/// - `Err(String)` with error message if kill or socket removal fails
+///
+/// # Process
+/// 1. Takes `Child` handle from `state.child` (leaves `None` in its place)
+/// 2. Sends SIGTERM via `child.kill().await` (despite name, this is graceful on Unix)
+/// 3. Waits up to 5 seconds for process to exit via `tokio::time::timeout`
+/// 4. Returns error if process doesn't exit or wait fails
+/// 5. Removes Unix socket file if present
+///
+/// # Errors
+/// Returns error string if:
+/// - `child.kill()` fails (process already dead is NOT an error)
+/// - Process doesn't exit within 5 seconds (may be zombie)
+/// - Process wait fails (system error)
+/// - Socket removal fails (filesystem permission error)
+///
+/// # Notes
+/// - If no process is running (`child` is `None`), returns `Ok(())` immediately
+/// - Process kill timeout returns error (zombie process warning)
+/// - Always attempts socket cleanup even if kill fails
 async fn kill_simulation(state: &AppState) -> Result<(), String> {
     let mut child_guard = state.child.lock().await;
 
