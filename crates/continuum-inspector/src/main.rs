@@ -127,10 +127,16 @@ async fn main() {
     // Setup graceful shutdown
     let shutdown_state = state.clone();
     tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.ok();
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Failed to register shutdown signal: {e}");
+        }
         info!("Received shutdown signal, cleaning up...");
-        kill_simulation(&shutdown_state).await.ok();
-        std::fs::remove_file(&shutdown_state.socket).ok();
+        if let Err(e) = kill_simulation(&shutdown_state).await {
+            error!("Failed to kill simulation during shutdown: {e}");
+        }
+        if let Err(e) = std::fs::remove_file(&shutdown_state.socket) {
+            warn!("Failed to remove socket during shutdown: {e}");
+        }
         info!("Shutdown complete");
         std::process::exit(0);
     });
@@ -461,13 +467,19 @@ async fn spawn_simulation(
         }
         if i == 49 {
             // Kill the process since it failed to create socket
-            kill_simulation(state).await.ok();
-            return Err("Timeout waiting for socket to be created".to_string());
+            if let Err(e) = kill_simulation(state).await {
+                error!("Failed to kill unresponsive process: {e}");
+            }
+            return Err(format!(
+                "Timeout waiting for continuum-run to create socket at {}. \
+                 Process may have failed to start - check process logs.",
+                state.socket.display()
+            ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    Ok(())
+    unreachable!("Socket wait loop exited without return")
 }
 
 async fn kill_simulation(state: &AppState) -> Result<(), String> {
@@ -486,12 +498,16 @@ async fn kill_simulation(state: &AppState) -> Result<(), String> {
         match tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await {
             Ok(Ok(status)) => {
                 info!("Process exited with status: {status}");
+                if !status.success() {
+                    warn!("Process exited with non-zero status: {status}");
+                }
             }
             Ok(Err(err)) => {
-                error!("Error waiting for process: {err}");
+                return Err(format!("Error waiting for process to exit: {err}"));
             }
             Err(_) => {
-                error!("Timeout waiting for process to exit");
+                error!("Process did not exit within 5 seconds after SIGTERM - may be zombie");
+                return Err("Timeout waiting for process to exit - process may be stuck".to_string());
             }
         }
 
