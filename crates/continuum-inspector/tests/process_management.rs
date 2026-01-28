@@ -49,7 +49,7 @@ async fn test_wait_for_condition_timeout() {
 
 #[tokio::test]
 async fn test_double_kill_safety() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("TempDir should create test directory");
     let socket_path = temp_dir.path().join("test.sock");
     let state = create_state(socket_path);
 
@@ -59,7 +59,7 @@ async fn test_double_kill_safety() {
 
 #[tokio::test]
 async fn test_spawn_success_creates_socket() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("TempDir should create test directory");
     let socket_path = temp_dir.path().join("test.sock");
     let world_path = PathBuf::from("/fake/world");
 
@@ -79,12 +79,14 @@ async fn test_spawn_success_creates_socket() {
     assert_eq!(spawned[0].1, socket_path);
     assert_eq!(spawned[0].2, None);
 
-    let _ = kill_simulation(&state).await;
+    kill_simulation(&state)
+        .await
+        .expect("Cleanup kill should succeed after spawn");
 }
 
 #[tokio::test]
 async fn test_spawn_timeout_kills_process() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("TempDir should create test directory");
     let socket_path = temp_dir.path().join("test.sock");
     let world_path = PathBuf::from("/fake/world");
 
@@ -105,7 +107,7 @@ async fn test_spawn_timeout_kills_process() {
 
 #[tokio::test]
 async fn test_spawn_with_scenario() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("TempDir should create test directory");
     let socket_path = temp_dir.path().join("test.sock");
     let world_path = PathBuf::from("/fake/world");
     let scenario = Some("test-scenario".to_string());
@@ -122,12 +124,14 @@ async fn test_spawn_with_scenario() {
     let spawned = spawner.spawned_processes();
     assert_eq!(spawned[0].2, scenario);
 
-    let _ = kill_simulation(&state).await;
+    kill_simulation(&state)
+        .await
+        .expect("Cleanup kill should succeed after spawn");
 }
 
 #[tokio::test]
 async fn test_kill_removes_socket() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("TempDir should create test directory");
     let socket_path = temp_dir.path().join("test.sock");
     let world_path = PathBuf::from("/fake/world");
 
@@ -138,7 +142,7 @@ async fn test_kill_removes_socket() {
 
     spawn_simulation(&spawner, &state, world_path, None)
         .await
-        .unwrap();
+        .expect("spawn_simulation should succeed");
     assert!(socket_path.exists(), "Socket should exist after spawn");
 
     let result = kill_simulation(&state).await;
@@ -151,7 +155,7 @@ async fn test_kill_removes_socket() {
 
 #[tokio::test]
 async fn test_spawn_fails_propagates_error() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("TempDir should create test directory");
     let socket_path = temp_dir.path().join("test.sock");
     let world_path = PathBuf::from("/fake/world");
 
@@ -172,7 +176,7 @@ async fn test_spawn_fails_propagates_error() {
 async fn test_socket_cleanup_failure_propagates() {
     use std::os::unix::fs::PermissionsExt;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("TempDir should create test directory");
     let socket_path = temp_dir.path().join("test.sock");
     let world_path = PathBuf::from("/fake/world");
 
@@ -183,17 +187,23 @@ async fn test_socket_cleanup_failure_propagates() {
 
     spawn_simulation(&spawner, &state, world_path, None)
         .await
-        .unwrap();
+        .expect("spawn_simulation should succeed");
 
-    let parent = socket_path.parent().unwrap();
-    let original_perms = std::fs::metadata(parent).unwrap().permissions();
+    let parent = socket_path
+        .parent()
+        .expect("Socket path should have parent directory");
+    let original_perms = std::fs::metadata(parent)
+        .expect("Parent directory metadata should be readable")
+        .permissions();
     let mut perms = original_perms.clone();
     perms.set_mode(0o444);
-    std::fs::set_permissions(parent, perms).unwrap();
+    std::fs::set_permissions(parent, perms)
+        .expect("set_permissions should succeed for test setup");
 
     let result = kill_simulation(&state).await;
 
-    std::fs::set_permissions(parent, original_perms).unwrap();
+    std::fs::set_permissions(parent, original_perms)
+        .expect("set_permissions should restore permissions");
 
     assert!(result.is_err(), "Should fail on socket removal");
     assert!(
