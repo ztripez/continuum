@@ -1,5 +1,6 @@
 //! Continuum Inspector library - exports modules for testing.
 
+pub mod handlers;
 pub mod helpers;
 pub mod process;
 pub mod spawner;
