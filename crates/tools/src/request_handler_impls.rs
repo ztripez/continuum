@@ -1001,7 +1001,7 @@ impl RequestHandler for CheckpointListHandler {
         "checkpoint.list"
     }
 
-    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+    fn handle(&self, req: &WorldRequest, _state: &ServerState) -> WorldResponse {
         let checkpoint_dir = default_checkpoint_dir();
 
         if !checkpoint_dir.exists() {

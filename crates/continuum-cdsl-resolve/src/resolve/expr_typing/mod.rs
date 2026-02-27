@@ -26,7 +26,7 @@ mod tests;
 
 use crate::error::{CompileError, ErrorKind};
 pub use context::TypingContext;
-use continuum_cdsl_ast::foundation::{BinaryOp, KernelType, Shape, Type, UnaryOp, Unit};
+use continuum_cdsl_ast::foundation::{BinaryOp, Type, UnaryOp};
 use continuum_cdsl_ast::{Expr, ExprKind, TypedExpr, UntypedKind};
 use continuum_foundation::Phase;
 use derivation::derive_return_type;

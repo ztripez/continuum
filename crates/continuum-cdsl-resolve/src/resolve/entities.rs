@@ -19,7 +19,7 @@
 //! - **Declaration Flattening**: Nested members become standalone `Declaration::Member` entries
 
 use crate::error::CompileError;
-use crate::resolve::attributes::{extract_single_identifier, extract_single_path, has_attribute};
+use crate::resolve::attributes::{extract_single_path, has_attribute};
 use continuum_cdsl_ast::foundation::Path;
 use continuum_cdsl_ast::{Attribute, Declaration, Expr, UntypedKind};
 
@@ -140,6 +140,7 @@ pub(crate) fn flatten_entity_members(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resolve::attributes::extract_single_identifier;
     use continuum_cdsl_ast::foundation::{EntityId, Span};
     use continuum_cdsl_ast::{Entity, Expr, Node, RoleData};
 

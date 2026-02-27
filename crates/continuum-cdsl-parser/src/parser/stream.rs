@@ -166,9 +166,4 @@ impl<'src> TokenStream<'src> {
             }
         }
     }
-
-    /// Get the file_id for this token stream.
-    pub fn file_id(&self) -> u16 {
-        self.file_id
-    }
 }

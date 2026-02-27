@@ -67,7 +67,7 @@ impl ExpressionVisitor for DependencyVisitor {
             | ExprKind::Neighbors { entity, .. } => {
                 self.paths.insert(Path::from(entity.0.to_string().as_str()));
             }
-            ExprKind::Filter { source, .. } => {
+            ExprKind::Filter { source: _, .. } => {
                 // Recursion handles source
             }
             ExprKind::Entity(entity_id) => {

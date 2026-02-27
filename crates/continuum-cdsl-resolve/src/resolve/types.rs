@@ -16,7 +16,7 @@ use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::foundation::{
     Bounds, EntityId, Path, Shape, Span, Type, UnaryOp, Unit, UserType, UserTypeId,
 };
-use continuum_cdsl_ast::{Declaration, Expr, NestedBlock, RoleData, RoleId, TypeExpr, UntypedKind};
+use continuum_cdsl_ast::{Declaration, Expr, RoleData, RoleId, TypeExpr, UntypedKind};
 use std::collections::HashMap;
 
 /// Registry of user-defined types keyed by fully-qualified [`Path`].

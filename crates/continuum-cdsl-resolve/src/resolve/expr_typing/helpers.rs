@@ -656,7 +656,7 @@ pub fn type_aggregate(
     source: &Expr,
     binding: &str,
     body: &Expr,
-    span: continuum_cdsl_ast::foundation::Span,
+    _span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_source = type_expression(source, ctx, None)?;
 

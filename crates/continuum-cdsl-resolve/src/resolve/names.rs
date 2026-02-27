@@ -190,7 +190,7 @@ impl SymbolTable {
 /// # Returns
 /// Symbol table containing all declared symbols, separated by kind.
 pub fn build_symbol_table(declarations: &[Declaration]) -> SymbolTable {
-    use continuum_cdsl_ast::{NestedBlock, RoleId};
+    use continuum_cdsl_ast::RoleId;
 
     let mut table = SymbolTable::new();
 
@@ -519,7 +519,10 @@ pub fn validate_expr(
             scope.pop();
         }
 
-        ExprKind::Nearest { entity, position } => {
+        ExprKind::Nearest {
+            entity: _,
+            position,
+        } => {
             // Validate entity reference
             // For now, let's just make sure it's a valid entity type in the future.
             // SymbolTable currently doesn't track entity IDs directly, but world nodes.
@@ -528,7 +531,7 @@ pub fn validate_expr(
         }
 
         ExprKind::Within {
-            entity,
+            entity: _,
             position,
             radius,
         } => {

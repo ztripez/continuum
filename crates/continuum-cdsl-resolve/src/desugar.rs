@@ -33,9 +33,8 @@
 
 use continuum_cdsl_ast::foundation::Span;
 use continuum_cdsl_ast::{
-    Attribute, BinaryOp, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node,
-    ObserveBlock, ObserveWhen, Stmt, Stratum, UnaryOp, UntypedKind as ExprKind, WarmupBlock,
-    WhenBlock, WorldDecl,
+    Attribute, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node, ObserveBlock,
+    ObserveWhen, Stmt, Stratum, UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
 };
 use continuum_kernel_registry::get_constant_mapping;
 
@@ -44,34 +43,6 @@ fn kernel_call(kernel: KernelId, args: Vec<Expr>, span: Span) -> Expr {
     Expr {
         kind: ExprKind::KernelCall { kernel, args },
         span,
-    }
-}
-
-/// Get the kernel ID for a binary operator
-fn binary_kernel(op: BinaryOp) -> KernelId {
-    match op {
-        BinaryOp::Add => KernelId::new("maths", "add"),
-        BinaryOp::Sub => KernelId::new("maths", "sub"),
-        BinaryOp::Mul => KernelId::new("maths", "mul"),
-        BinaryOp::Div => KernelId::new("maths", "div"),
-        BinaryOp::Mod => KernelId::new("maths", "mod"),
-        BinaryOp::Pow => KernelId::new("maths", "pow"),
-        BinaryOp::Eq => KernelId::new("compare", "eq"),
-        BinaryOp::Ne => KernelId::new("compare", "ne"),
-        BinaryOp::Lt => KernelId::new("compare", "lt"),
-        BinaryOp::Le => KernelId::new("compare", "le"),
-        BinaryOp::Gt => KernelId::new("compare", "gt"),
-        BinaryOp::Ge => KernelId::new("compare", "ge"),
-        BinaryOp::And => KernelId::new("logic", "and"),
-        BinaryOp::Or => KernelId::new("logic", "or"),
-    }
-}
-
-/// Get the kernel ID for a unary operator
-fn unary_kernel(op: UnaryOp) -> KernelId {
-    match op {
-        UnaryOp::Neg => KernelId::new("maths", "neg"),
-        UnaryOp::Not => KernelId::new("logic", "not"),
     }
 }
 

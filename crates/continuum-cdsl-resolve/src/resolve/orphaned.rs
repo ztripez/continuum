@@ -5,7 +5,6 @@
 //! 2. Not assigned to any node (signal, field, operator, etc.)
 
 use crate::error::{CompileError, ErrorKind};
-use continuum_cdsl_ast::foundation::StratumId;
 use continuum_cdsl_ast::{Era, Node, Stratum};
 use indexmap::IndexMap;
 use std::collections::HashSet;

@@ -3,13 +3,12 @@
 //! Main expression validator that dispatches to specialized validators
 //! for kernels, structs, field access, etc. Also validates literal bounds.
 
-use super::constraints::{validate_shape_constraint, validate_unit_constraint};
 use super::kernels::validate_kernel_call;
 use super::structs::{validate_field_access, validate_struct_fields};
 use super::ValidationContext;
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::{Span, Type};
-use continuum_cdsl_ast::{ExprKind, KernelId, TypedExpr};
+use continuum_cdsl_ast::{ExprKind, TypedExpr};
 
 pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<CompileError> {
     let mut errors = Vec::new();
@@ -70,15 +69,6 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
                     "Seq types cannot be stored in let bindings (must be immediately consumed by aggregate/fold)".to_string(),
                 ));
             }
-        }
-
-        ExprKind::Aggregate { body, .. } => {
-            errors.extend(validate_expr(body, ctx));
-        }
-
-        ExprKind::Fold { init, body, .. } => {
-            errors.extend(validate_expr(init, ctx));
-            errors.extend(validate_expr(body, ctx));
         }
 
         ExprKind::Struct {

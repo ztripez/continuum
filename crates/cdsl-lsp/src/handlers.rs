@@ -81,7 +81,6 @@ impl LanguageServer for Backend {
             .await;
 
         self.scan_workspace().await;
-        self.validate_workspace().await;
     }
 
     async fn shutdown(&self) -> Result<()> {

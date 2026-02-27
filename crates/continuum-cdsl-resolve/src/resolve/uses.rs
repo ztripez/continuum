@@ -57,11 +57,6 @@ use crate::resolve::attributes::extract_multiple_paths;
 use continuum_cdsl_ast::foundation::Span;
 use std::collections::HashSet;
 
-/// Hint message for raw dt usage violations
-const DT_RAW_HINT: &str = "Raw dt access makes code dt-fragile. Use dt-robust operators \
-    (dt.integrate, dt.decay, dt.relax) instead. If raw dt is physically correct \
-    (e.g., Energy = Power × dt), declare : uses(dt.raw)";
-
 /// Information about a required uses declaration
 #[derive(Debug, Clone)]
 struct RequiredUse {

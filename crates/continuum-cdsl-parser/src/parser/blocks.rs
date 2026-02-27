@@ -3,7 +3,6 @@
 use super::{ParseError, TokenStream};
 use continuum_cdsl_ast::{BlockBody, ObserveBlock, ObserveWhen, Stmt, WarmupBlock, WhenBlock};
 use continuum_cdsl_lexer::Token;
-use std::rc::Rc;
 
 /// Parse execution blocks inside a primitive declaration body.
 ///

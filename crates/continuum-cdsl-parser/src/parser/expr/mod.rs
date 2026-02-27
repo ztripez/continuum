@@ -36,15 +36,6 @@ pub fn parse_expr(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     pratt::parse_pratt(stream, 0)
 }
 
-/// Parse an atomic expression (literal, identifier, parenthesized expr).
-///
-/// This parser does not consume binary operators, making it suitable for
-/// contexts where operators would be ambiguous (e.g., type bounds where `>`
-/// closes the type parameters rather than starting a comparison).
-pub(super) fn parse_atom(stream: &mut TokenStream) -> Result<Expr, ParseError> {
-    atoms::parse_atom(stream)
-}
-
 /// Parse a primary expression (unary operators + atoms, no binary ops).
 ///
 /// Handles:

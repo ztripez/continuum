@@ -10,8 +10,6 @@ use crate::bytecode::operand::{
 };
 use crate::bytecode::program::BytecodeProgram;
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError, ExecutionRuntime};
-use continuum_foundation::Path;
-
 /// Helper to access fields with entity context support for member signals.
 ///
 /// This extends `field_access` to handle the special case where `LoadSelf` returns
@@ -438,7 +436,7 @@ pub(crate) fn handle_neighbors(
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
     let instance = runtime.pop()?;
-    let seq_value = runtime.pop()?;
+    let _seq_value = runtime.pop()?;
 
     // Extract entity ID from Neighbors operand
     let entity_id = instruction

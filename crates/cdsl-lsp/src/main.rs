@@ -306,15 +306,6 @@ impl Backend {
         // Compilation happens when files are opened/changed and compiles the entire world.
     }
 
-    /// Check if the workspace has a world definition.
-    fn has_world_definition(&self) -> bool {
-        !self.worlds.is_empty()
-    }
-
-    /// Run workspace-level validation (now handled by unified compiler).
-    async fn validate_workspace(&self) {
-        // Validation is now handled during compilation
-    }
 }
 
 // =============================================================================

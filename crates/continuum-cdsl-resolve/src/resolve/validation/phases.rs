@@ -8,7 +8,7 @@ use super::ValidationContext;
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::types::TypeTable;
 use continuum_cdsl_ast::foundation::{Phase, Type};
-use continuum_cdsl_ast::{BlockBody, KernelRegistry, Stmt, TypedStmt};
+use continuum_cdsl_ast::KernelRegistry;
 
 ///
 /// This includes execution blocks, warmup logic, fracture conditions,

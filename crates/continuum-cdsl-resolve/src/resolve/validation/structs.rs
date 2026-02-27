@@ -5,7 +5,7 @@
 
 use super::ValidationContext;
 use crate::error::{CompileError, ErrorKind};
-use continuum_cdsl_ast::foundation::{Path, Span, Type};
+use continuum_cdsl_ast::foundation::Span;
 use continuum_cdsl_ast::TypedExpr;
 
 pub(super) fn validate_struct_fields(

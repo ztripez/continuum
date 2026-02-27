@@ -21,7 +21,6 @@
 use std::collections::BTreeMap;
 
 use continuum_cdsl::ast::{Execution, ExecutionBody, ExprKind, TypedExpr, TypedStmt};
-use continuum_cdsl::foundation::Type;
 use continuum_foundation::{AggregateOp, EntityId, Path, Phase, Value};
 
 use crate::bytecode::opcode::{Instruction, OpcodeKind};
