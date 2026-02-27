@@ -1440,11 +1440,19 @@ impl PopulationStorage {
     }
 
     /// Set current signal value by instance ID.
-    pub fn set_current(&mut self, instance_id: &str, signal: &str, value: Value) {
+    ///
+    /// Returns an error if the instance ID doesn't exist, or if the signal name
+    /// is unknown, or if the value type doesn't match the signal's registered type.
+    pub fn set_current(
+        &mut self,
+        instance_id: &str,
+        signal: &str,
+        value: Value,
+    ) -> Result<(), String> {
         let idx = self
             .instance_index(instance_id)
-            .expect("instance_id must exist in entity storage");
-        let _ = self.signals.set_current(signal, idx, value);
+            .ok_or_else(|| format!("Unknown instance_id: {instance_id}"))?;
+        self.signals.set_current(signal, idx, value)
     }
 
     /// Get direct access to member signal buffer.

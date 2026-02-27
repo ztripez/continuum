@@ -10,7 +10,7 @@
 use tracing::info;
 
 use crate::error::{Error, Result};
-use crate::types::{DeterminismPolicy, StratumState};
+use crate::types::DeterminismPolicy;
 
 use super::runtime::Runtime;
 
@@ -80,18 +80,7 @@ impl Runtime {
             .get(&self.current_era)
             .ok_or_else(|| Error::Checkpoint("current era not found".to_string()))?
             .strata
-            .iter()
-            .map(|(id, state)| {
-                let is_gated = matches!(state, StratumState::Gated);
-                (
-                    id.clone(),
-                    crate::checkpoint::StratumState {
-                        cadence_counter: 0,
-                        is_gated,
-                    },
-                )
-            })
-            .collect();
+            .clone();
 
         // Build checkpoint
         let checkpoint = crate::checkpoint::Checkpoint {
@@ -207,10 +196,10 @@ impl Runtime {
             .restore_into_buffer(&mut self.member_signals)
             .map_err(|e| Error::Checkpoint(e.to_string()))?;
 
-        // TODO: Restore stratum states
-        // Note: checkpoint::StratumState (struct) differs from foundation::StratumState (enum)
-        // Need to implement conversion between the two types
-        // For now, stratum states are not restored (they will reset to default)
+        // Restore stratum states into the current era
+        if let Some(era_config) = self.eras.get_mut(&self.current_era) {
+            era_config.strata = checkpoint.state.stratum_states;
+        }
 
         info!(
             tick = self.tick,

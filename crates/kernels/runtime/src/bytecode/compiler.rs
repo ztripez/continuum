@@ -323,12 +323,6 @@ impl Compiler {
             ExprKind::StringLiteral(value) => {
                 block.instructions.push(Instruction::new(
                     OpcodeKind::PushLiteral,
-                    vec![Operand::String(value.clone())],
-                ));
-            }
-            ExprKind::StringLiteral(value) => {
-                block.instructions.push(Instruction::new(
-                    OpcodeKind::PushLiteral,
                     vec![Operand::Literal(Value::String(std::sync::Arc::new(
                         value.clone(),
                     )))],

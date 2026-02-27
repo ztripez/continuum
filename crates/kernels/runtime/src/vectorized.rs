@@ -324,8 +324,16 @@ impl MemberSignal {
     }
 
     /// Set the current value for an entity index.
-    pub fn set_current(&self, storage: &mut MemberSignalBuffer, index: EntityIndex, value: Value) {
-        let _ = storage.set_current(&self.id.signal_name, index.0, value);
+    ///
+    /// Returns an error if the signal name is unknown or the value type doesn't
+    /// match the signal's registered type.
+    pub fn set_current(
+        &self,
+        storage: &mut MemberSignalBuffer,
+        index: EntityIndex,
+        value: Value,
+    ) -> Result<(), String> {
+        storage.set_current(&self.id.signal_name, index.0, value)
     }
 
     /// Get all current values as a slice (for scalar signals).
@@ -1191,7 +1199,9 @@ mod tests {
 
             // Write values at all indices
             for i in 0..size {
-                signal.set_current(&mut storage, EntityIndex(i), Value::Scalar(i as f64 * 10.0));
+                signal
+                    .set_current(&mut storage, EntityIndex(i), Value::Scalar(i as f64 * 10.0))
+                    .expect("test: set_current");
             }
 
             // Verify all values are readable including tail elements
@@ -1241,11 +1251,13 @@ mod tests {
             // Write Vec3 values at all indices
             for i in 0..size {
                 let v = i as f64;
-                signal.set_current(
-                    &mut storage,
-                    EntityIndex(i),
-                    Value::Vec3([v, v * 2.0, v * 3.0]),
-                );
+                signal
+                    .set_current(
+                        &mut storage,
+                        EntityIndex(i),
+                        Value::Vec3([v, v * 2.0, v * 3.0]),
+                    )
+                    .expect("test: set_current vec3");
             }
 
             // Verify all values including tail elements

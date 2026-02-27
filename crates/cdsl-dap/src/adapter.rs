@@ -1,7 +1,8 @@
 use continuum_cdsl::ast::World;
 use continuum_cdsl::compile_with_sources;
 use continuum_runtime::{build_runtime, Runtime};
-use dap::events::{Event, StoppedEventBody};
+use dap::events::{Event, OutputEventBody, StoppedEventBody};
+use dap::types::OutputEventCategory;
 use dap::prelude::*;
 use dap::types::{Capabilities, Message, Scope, StackFrame, StoppedEventReason, Thread, Variable};
 
@@ -427,7 +428,30 @@ impl ContinuumDebugAdapter {
                             session.status = SessionStatus::Running;
                             if !session.runtime.is_warmup_complete() {
                                 info!("Executing warmup...");
-                                let _ = session.runtime.execute_warmup();
+                                if let Err(e) = session.runtime.execute_warmup() {
+                                    let msg = format!("Warmup failed: {}", e);
+                                    error!("{}", msg);
+                                    session.status = SessionStatus::Paused;
+                                    adapter
+                                        .send_event(Event::Output(OutputEventBody {
+                                            output: format!("{}\n", msg),
+                                            category: Some(OutputEventCategory::Stderr),
+                                            ..Default::default()
+                                        }))
+                                        .await;
+                                    adapter
+                                        .send_event(Event::Stopped(StoppedEventBody {
+                                            reason: StoppedEventReason::Exception,
+                                            thread_id: Some(1),
+                                            all_threads_stopped: Some(true),
+                                            text: Some(msg),
+                                            description: None,
+                                            preserve_focus_hint: None,
+                                            hit_breakpoint_ids: None,
+                                        }))
+                                        .await;
+                                    return;
+                                }
                             }
                             info!("Starting execution loop");
                         }
@@ -521,7 +545,12 @@ impl ContinuumDebugAdapter {
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
                     if !session.runtime.is_warmup_complete() {
-                        let _ = session.runtime.execute_warmup();
+                        if let Err(e) = session.runtime.execute_warmup() {
+                            return self.make_error_response(
+                                &request,
+                                format!("Warmup failed: {}", e),
+                            );
+                        }
                     }
                     match session.runtime.execute_step() {
                         Ok(result) => {
@@ -575,7 +604,12 @@ impl ContinuumDebugAdapter {
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
                     if !session.runtime.is_warmup_complete() {
-                        let _ = session.runtime.execute_warmup();
+                        if let Err(e) = session.runtime.execute_warmup() {
+                            return self.make_error_response(
+                                &request,
+                                format!("Warmup failed: {}", e),
+                            );
+                        }
                     }
                     match session.runtime.execute_step() {
                         Ok(result) => {
@@ -628,7 +662,12 @@ impl ContinuumDebugAdapter {
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
                     if !session.runtime.is_warmup_complete() {
-                        let _ = session.runtime.execute_warmup();
+                        if let Err(e) = session.runtime.execute_warmup() {
+                            return self.make_error_response(
+                                &request,
+                                format!("Warmup failed: {}", e),
+                            );
+                        }
                     }
 
                     // Keep stepping until tick completes

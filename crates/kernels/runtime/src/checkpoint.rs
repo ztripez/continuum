@@ -37,10 +37,10 @@ use tracing::{debug, error, info, warn};
 
 use crate::soa_storage::MemberSignalBuffer;
 use crate::storage::{EntityStorage, SignalStorage};
-use crate::types::{EraId, StratumId, Value};
+use crate::types::{EraId, StratumId, StratumState, Value};
 
 /// Checkpoint format version (increment on breaking changes).
-pub const CHECKPOINT_VERSION: u32 = 1;
+pub const CHECKPOINT_VERSION: u32 = 2;
 
 /// Default queue depth for checkpoint writer (bounded channel capacity).
 pub const DEFAULT_QUEUE_DEPTH: usize = 3;
@@ -85,16 +85,6 @@ pub struct CheckpointHeader {
 pub struct EraConfigSnapshot {
     pub dt: f64,
     pub strata_count: usize,
-}
-
-/// Stratum execution state (for gated execution).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct StratumState {
-    /// Cadence counter for gated execution
-    pub cadence_counter: u64,
-
-    /// Whether stratum is currently gated (not executing)
-    pub is_gated: bool,
 }
 
 /// Serializable member signal data (extracted from SoA buffers).

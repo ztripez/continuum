@@ -354,11 +354,13 @@ mod tests {
 
         // Initialize values via set_current then advance
         for i in 0..10 {
-            population.set_current(
-                &format!("inst_{}", i),
-                "counter",
-                crate::types::Value::Scalar(i as f64),
-            );
+            population
+                .set_current(
+                    &format!("inst_{}", i),
+                    "counter",
+                    crate::types::Value::Scalar(i as f64),
+                )
+                .expect("test: set_current counter");
         }
         population.advance_tick();
 
@@ -402,11 +404,13 @@ mod tests {
 
         // Initialize values
         for i in 0..5 {
-            population.set_current(
-                &format!("inst_{}", i),
-                "position",
-                crate::types::Value::Vec3([i as f64, 0.0, 0.0]),
-            );
+            population
+                .set_current(
+                    &format!("inst_{}", i),
+                    "position",
+                    crate::types::Value::Vec3([i as f64, 0.0, 0.0]),
+                )
+                .expect("test: set_current position");
         }
         population.advance_tick();
 

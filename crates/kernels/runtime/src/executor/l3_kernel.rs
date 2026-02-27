@@ -973,16 +973,20 @@ mod tests {
 
         // Initialize: A=10, B=0
         for i in 0..5 {
-            population.set_current(
-                &format!("inst_{}", i),
-                "a",
-                crate::types::Value::Scalar(10.0),
-            );
-            population.set_current(
-                &format!("inst_{}", i),
-                "b",
-                crate::types::Value::Scalar(0.0),
-            );
+            population
+                .set_current(
+                    &format!("inst_{}", i),
+                    "a",
+                    crate::types::Value::Scalar(10.0),
+                )
+                .expect("test: set_current a");
+            population
+                .set_current(
+                    &format!("inst_{}", i),
+                    "b",
+                    crate::types::Value::Scalar(0.0),
+                )
+                .expect("test: set_current b");
         }
         population.advance_tick();
 
@@ -1046,17 +1050,21 @@ mod tests {
 
         // Initialize: A=5, others=0
         for i in 0..3 {
-            population.set_current(
-                &format!("inst_{}", i),
-                "a",
-                crate::types::Value::Scalar(5.0),
-            );
-            for signal in ["b", "c", "d"] {
-                population.set_current(
+            population
+                .set_current(
                     &format!("inst_{}", i),
-                    signal,
-                    crate::types::Value::Scalar(0.0),
-                );
+                    "a",
+                    crate::types::Value::Scalar(5.0),
+                )
+                .expect("test: set_current a");
+            for signal in ["b", "c", "d"] {
+                population
+                    .set_current(
+                        &format!("inst_{}", i),
+                        signal,
+                        crate::types::Value::Scalar(0.0),
+                    )
+                    .expect("test: set_current");
             }
         }
         population.advance_tick();
@@ -1130,16 +1138,20 @@ mod tests {
             }
             population.finalize();
             for i in 0..10 {
-                population.set_current(
-                    &format!("inst_{}", i),
-                    "a",
-                    crate::types::Value::Scalar(i as f64),
-                );
-                population.set_current(
-                    &format!("inst_{}", i),
-                    "b",
-                    crate::types::Value::Scalar(0.0),
-                );
+                population
+                    .set_current(
+                        &format!("inst_{}", i),
+                        "a",
+                        crate::types::Value::Scalar(i as f64),
+                    )
+                    .expect("test: set_current a");
+                population
+                    .set_current(
+                        &format!("inst_{}", i),
+                        "b",
+                        crate::types::Value::Scalar(0.0),
+                    )
+                    .expect("test: set_current b");
             }
             population.advance_tick();
             population

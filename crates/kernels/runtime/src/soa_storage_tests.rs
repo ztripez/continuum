@@ -151,8 +151,10 @@ fn test_population_storage() {
     assert_eq!(pop.instance_index("moon_1"), Some(0));
     assert_eq!(pop.instance_index("moon_2"), Some(1));
 
-    pop.set_current("moon_1", "mass", Value::Scalar(100.0));
-    pop.set_current("moon_2", "mass", Value::Scalar(200.0));
+    pop.set_current("moon_1", "mass", Value::Scalar(100.0))
+        .expect("test: set_current moon_1");
+    pop.set_current("moon_2", "mass", Value::Scalar(200.0))
+        .expect("test: set_current moon_2");
 
     assert_eq!(
         pop.get_current("moon_1", "mass"),
@@ -171,7 +173,8 @@ fn test_population_storage_tick_advance() {
     pop.register_instance("moon_1".to_string());
     pop.finalize();
 
-    pop.set_current("moon_1", "mass", Value::Scalar(100.0));
+    pop.set_current("moon_1", "mass", Value::Scalar(100.0))
+        .expect("test: set_current moon_1");
     pop.advance_tick();
 
     assert_eq!(
@@ -179,7 +182,8 @@ fn test_population_storage_tick_advance() {
         Some(Value::Scalar(100.0))
     );
 
-    pop.set_current("moon_1", "mass", Value::Scalar(150.0));
+    pop.set_current("moon_1", "mass", Value::Scalar(150.0))
+        .expect("test: set_current moon_1");
     assert_eq!(
         pop.get_current("moon_1", "mass"),
         Some(Value::Scalar(150.0))
