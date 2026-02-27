@@ -799,7 +799,10 @@ fn evaluate_literal(expr: &continuum_cdsl::ast::Expr) -> Option<Value> {
     match &expr.kind {
         UntypedKind::Literal { value, .. } => Some(Value::Scalar(*value)),
         // Handle negative literals (parsed as UnaryOp::Neg)
-        UntypedKind::Unary { op, operand } if matches!(op, UnaryOp::Neg) => {
+        UntypedKind::Unary {
+            op: UnaryOp::Neg,
+            operand,
+        } => {
             if let UntypedKind::Literal { value, .. } = &operand.kind {
                 Some(Value::Scalar(-value))
             } else {
@@ -811,7 +814,10 @@ fn evaluate_literal(expr: &continuum_cdsl::ast::Expr) -> Option<Value> {
             let extract_scalar = |elem: &continuum_cdsl::ast::Expr| -> Option<f64> {
                 match &elem.kind {
                     UntypedKind::Literal { value, .. } => Some(*value),
-                    UntypedKind::Unary { op, operand } if matches!(op, UnaryOp::Neg) => {
+                    UntypedKind::Unary {
+                        op: UnaryOp::Neg,
+                        operand,
+                    } => {
                         if let UntypedKind::Literal { value, .. } = &operand.kind {
                             Some(-value)
                         } else {

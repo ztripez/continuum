@@ -114,26 +114,24 @@ pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>, span: Span) -> Result<Uni
 /// (e.g., "da" before "d").
 fn try_parse_prefix(name: &str) -> Option<(f64, &str)> {
     // Try two-character prefixes first (da)
-    if name.len() > 2 {
-        if let Some(&(_, exp)) = SI_PREFIXES
+    if name.len() > 2
+        && let Some(&(_, exp)) = SI_PREFIXES
             .iter()
             .find(|(p, _)| p.len() == 2 && name.starts_with(p))
         {
             let base = &name[2..];
             return Some((10.0_f64.powi(exp), base));
         }
-    }
 
     // Try one-character prefixes
-    if name.len() > 1 {
-        if let Some(&(_, exp)) = SI_PREFIXES
+    if name.len() > 1
+        && let Some(&(_, exp)) = SI_PREFIXES
             .iter()
             .find(|(p, _)| p.len() == 1 && name.starts_with(p))
         {
             let base = &name[1..];
             return Some((10.0_f64.powi(exp), base));
         }
-    }
 
     None
 }
@@ -210,9 +208,9 @@ pub fn resolve_base_unit(name: &str, span: Span) -> Result<Unit, CompileError> {
     }
 
     // 2. Try prefix parsing (only if not reserved)
-    if !RESERVED_UNITS.contains(&name) {
-        if let Some((prefix_scale, base_name)) = try_parse_prefix(name) {
-            if let Some(base_unit) = try_exact_base_unit(base_name) {
+    if !RESERVED_UNITS.contains(&name)
+        && let Some((prefix_scale, base_name)) = try_parse_prefix(name)
+            && let Some(base_unit) = try_exact_base_unit(base_name) {
                 // Apply prefix scale to base unit
                 return Ok(Unit::new(
                     *base_unit.kind(),
@@ -220,8 +218,6 @@ pub fn resolve_base_unit(name: &str, span: Span) -> Result<Unit, CompileError> {
                     base_unit.scale() * prefix_scale,
                 ));
             }
-        }
-    }
 
     // 3. Unknown unit
     Err(CompileError::new(

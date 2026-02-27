@@ -147,9 +147,7 @@ impl DynMemberResolver for ScalarMemberResolver {
             config,
         );
         for (i, v) in values.into_iter().enumerate() {
-            if let Err(e) = member_signals.set_current(full_signal, i, Value::Scalar(v)) {
-                return Err(e);
-            }
+            member_signals.set_current(full_signal, i, Value::Scalar(v))?
         }
         Ok(())
     }
@@ -209,9 +207,7 @@ impl DynMemberResolver for Vec3MemberResolver {
             config,
         );
         for (i, v) in values.into_iter().enumerate() {
-            if let Err(e) = member_signals.set_current(full_signal, i, Value::Vec3(v)) {
-                return Err(e);
-            }
+            member_signals.set_current(full_signal, i, Value::Vec3(v))?
         }
         Ok(())
     }
@@ -432,6 +428,7 @@ impl PhaseExecutor {
     }
 
     /// Execute the Collect phase
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "collect")]
     pub fn execute_collect(
         &self,
@@ -498,6 +495,7 @@ impl PhaseExecutor {
     }
 
     /// Execute the Resolve phase
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "resolve")]
     pub fn execute_resolve(
         &self,
@@ -534,12 +532,11 @@ impl PhaseExecutor {
             for level in &dag.levels {
                 // Check for breakpoints in this level BEFORE executing it
                 for node in &level.nodes {
-                    if let NodeKind::SignalResolve { signal, .. } = &node.kind {
-                        if breakpoints.contains(signal) {
+                    if let NodeKind::SignalResolve { signal, .. } = &node.kind
+                        && breakpoints.contains(signal) {
                             debug!(%signal, "breakpoint hit");
                             return Ok(Some(signal.clone()));
                         }
-                    }
                 }
 
                 // Collect tasks for parallel execution
@@ -617,22 +614,20 @@ impl PhaseExecutor {
                         })
                         .collect();
 
-                    for res in results {
-                        if let Ok((signal, value)) = res {
-                            let prev = signals.get_prev(&signal).unwrap_or(&value);
-                            assertion_checker.check_signal(
-                                &signal,
-                                &value,
-                                prev,
-                                signals,
-                                entities,
-                                dt,
-                                sim_time,
-                                tick,
-                                &era.to_string(),
-                            )?;
-                            signals.set_current(signal, value);
-                        }
+                    for (signal, value) in results.into_iter().flatten() {
+                        let prev = signals.get_prev(&signal).unwrap_or(&value);
+                        assertion_checker.check_signal(
+                            &signal,
+                            &value,
+                            prev,
+                            signals,
+                            entities,
+                            dt,
+                            sim_time,
+                            tick,
+                            &era.to_string(),
+                        )?;
+                        signals.set_current(signal, value);
                     }
                 }
 
@@ -654,10 +649,8 @@ impl PhaseExecutor {
                         })
                         .collect::<Vec<_>>();
 
-                    for res in results {
-                        if let Ok((signal, value)) = res {
-                            signals.set_current(signal, value);
-                        }
+                    for (signal, value) in results.into_iter().flatten() {
+                        signals.set_current(signal, value);
                     }
                 }
             }
@@ -670,6 +663,7 @@ impl PhaseExecutor {
     /// Fracture condition evaluation is read-only, so we can parallelize it.
     /// Results are sorted by fracture index before emitting to maintain
     /// deterministic ordering.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "fracture")]
     pub fn execute_fracture(
         &self,
@@ -769,6 +763,7 @@ impl PhaseExecutor {
     ///
     /// Each parallel task writes to its own local buffer, which are merged
     /// after all execution completes.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "measure")]
     pub fn execute_measure(
         &self,
@@ -876,6 +871,7 @@ impl PhaseExecutor {
     /// Chronicle handlers can run in parallel since they only read signals.
     /// Results are sorted by chronicle index before emitting to maintain
     /// deterministic event ordering.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "chronicles")]
     pub fn execute_chronicles(
         &self,

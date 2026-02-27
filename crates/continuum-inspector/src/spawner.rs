@@ -3,7 +3,7 @@
 //! Provides a trait-based interface for spawning child processes, enabling
 //! dependency injection and mocking in tests without modifying production code.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::process::{Child, Command};
 
 /// Trait for spawning child processes.
@@ -23,8 +23,8 @@ pub trait ProcessSpawner: Send + Sync {
     /// - `Err(String)` with error message if spawn fails
     fn spawn_continuum_run(
         &self,
-        world_path: &PathBuf,
-        socket_path: &PathBuf,
+        world_path: &Path,
+        socket_path: &Path,
         scenario: Option<&str>,
     ) -> Result<Child, String>;
 }
@@ -38,8 +38,8 @@ pub struct RealProcessSpawner;
 impl ProcessSpawner for RealProcessSpawner {
     fn spawn_continuum_run(
         &self,
-        world_path: &PathBuf,
-        socket_path: &PathBuf,
+        world_path: &Path,
+        socket_path: &Path,
         scenario: Option<&str>,
     ) -> Result<Child, String> {
         let mut cmd = Command::new("continuum-run");
@@ -54,6 +54,7 @@ impl ProcessSpawner for RealProcessSpawner {
     }
 }
 
+#[allow(dead_code)]
 pub mod mock {
     //! Mock process spawner for testing.
     //!
@@ -61,7 +62,7 @@ pub mod mock {
 
     use super::*;
     use std::sync::{Arc, Mutex};
-    use tokio::io::{self, AsyncWriteExt};
+    
 
     /// Behavior specification for mock spawned processes.
     #[derive(Debug, Clone)]
@@ -126,8 +127,8 @@ pub mod mock {
     impl ProcessSpawner for MockProcessSpawner {
         fn spawn_continuum_run(
             &self,
-            world_path: &PathBuf,
-            socket_path: &PathBuf,
+            world_path: &Path,
+            socket_path: &Path,
             scenario: Option<&str>,
         ) -> Result<Child, String> {
             // Record spawn attempt
@@ -135,8 +136,8 @@ pub mod mock {
                 .lock()
                 .expect("MockProcessSpawner spawned_processes mutex poisoned")
                 .push(SpawnedProcess {
-                    world_path: world_path.clone(),
-                    socket_path: socket_path.clone(),
+                    world_path: world_path.to_path_buf(),
+                    socket_path: socket_path.to_path_buf(),
                     scenario: scenario.map(|s| s.to_string()),
                 });
 
@@ -150,7 +151,7 @@ pub mod mock {
                 MockBehavior::SpawnFails { error } => Err(error),
                 MockBehavior::Success { socket_delay_ms } => {
                     // Spawn mock process that creates socket after delay
-                    let socket_path = socket_path.clone();
+                    let socket_path = socket_path.to_path_buf();
                     Ok(spawn_mock_process(move || async move {
                         tokio::time::sleep(tokio::time::Duration::from_millis(socket_delay_ms))
                             .await;

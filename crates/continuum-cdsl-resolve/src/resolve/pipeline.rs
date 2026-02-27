@@ -257,7 +257,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
 
     let ctx = TypingContext::new(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,
@@ -430,11 +430,11 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     extend_node_pass!(errors, &global_nodes, &member_nodes, |nodes| {
-        validate_uses(nodes, &registry)
+        validate_uses(nodes, registry)
     });
 
     extend_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
-        validate_integrators(nodes, &registry)
+        validate_integrators(nodes, registry)
     });
 
     // Extract :initial() attributes for signal initialization
@@ -447,7 +447,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     });
 
     validate_node_pass!(errors, &global_nodes, &member_nodes, |node| {
-        validate_node(node, &type_table, &registry)
+        validate_node(node, &type_table, registry)
     });
 
     if !errors.is_empty() {
@@ -1485,7 +1485,7 @@ mod config_const_tests {
         let entries = vec![ConstEntry {
             path: Path::from_path_str("const.pi"),
             type_expr: TypeExpr::Infer,
-            value: make_literal(3.14159),
+            value: make_literal(1.23456),
             span: test_span(),
             doc: None,
         }];

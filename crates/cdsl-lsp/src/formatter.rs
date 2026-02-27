@@ -112,10 +112,8 @@ fn format_line(line: &str) -> String {
                     // Comparison operator
                     ensure_space_before(&mut result);
                     result.push(c);
-                    if chars.peek() == Some(&'=') {
-                        result.push(chars.next().unwrap());
-                    } else if chars.peek() == Some(&'-') {
-                        result.push(chars.next().unwrap());
+                    if chars.peek() == Some(&'=') || chars.peek() == Some(&'-') {
+                        result.push(chars.next().expect("peeked char must exist"));
                     }
                     ensure_space_after(&mut result, &mut chars);
                 }

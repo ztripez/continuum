@@ -352,6 +352,7 @@ impl L3MemberResolver for ScalarL3MemberResolver {
 }
 
 /// Vec3 L3 member resolver.
+#[allow(clippy::type_complexity)]
 pub struct Vec3L3MemberResolver {
     member_signal_id: MemberSignalId,
     resolver: Arc<dyn Fn(&Vec3L3ResolveContext) -> [f64; 3] + Send + Sync>,

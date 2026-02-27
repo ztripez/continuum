@@ -326,15 +326,15 @@ impl Bounds {
             return false;
         }
 
-        if let Some(min) = self.min {
-            if value < min {
-                return false;
-            }
+        if let Some(min) = self.min
+            && value < min
+        {
+            return false;
         }
-        if let Some(max) = self.max {
-            if value > max {
-                return false;
-            }
+        if let Some(max) = self.max
+            && value > max
+        {
+            return false;
         }
         true
     }

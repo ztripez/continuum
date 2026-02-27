@@ -61,8 +61,11 @@ pub use continuum_cdsl_parser as parser;
 pub use continuum_cdsl_parser::{parse_declarations, parse_expr, ParseError};
 
 // Re-export resolve
+// Note: `error` module exists in both ast and resolve; we alias resolve
+// and re-export its public items explicitly to avoid ambiguous glob re-exports.
 pub use continuum_cdsl_resolve as resolve;
-pub use continuum_cdsl_resolve::*;
+pub use continuum_cdsl_resolve::error as resolve_error;
+pub use continuum_cdsl_resolve::{desugar, CompileError};
 
 // Keep compile module (high-level API)
 pub mod compile;

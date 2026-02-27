@@ -225,6 +225,7 @@ pub fn type_literal(
 /// - `object`: The expression being accessed.
 /// - `field`: The name of the field to access.
 /// - `span`: Source location of the access.
+///
 /// Attempts to interpret an expression as a bare path reference.
 ///
 /// Attempts to extract a dot-separated path from an expression chain for bare path resolution.
@@ -1015,6 +1016,7 @@ pub fn type_call(
 /// - `kernel`: The specific kernel ID being called.
 /// - `args`: Argument expressions.
 /// - `span`: Source location of the call.
+///
 /// Derives the expected type for a kernel parameter based on its constraints.
 ///
 /// For constraints that reference other parameters (SameAs, SameDimsAs),
@@ -1048,11 +1050,10 @@ fn derive_expected_type_for_param(
     };
 
     // If it references another parameter, use that parameter's type
-    if let Some(idx) = reference_index {
-        if idx < typed_args.len() {
+    if let Some(idx) = reference_index
+        && idx < typed_args.len() {
             return Some(typed_args[idx].ty.clone());
         }
-    }
 
     // For other constraints (Exact, Dimensionless, Angle, Any), no expected type
     None
@@ -1070,8 +1071,8 @@ pub fn type_as_kernel_call(
     //   - pow(x<J>, 1/3) -> Scalar<J^(1/3)>
     if kernel.namespace == "maths" && kernel.name == "pow" && args.len() == 2 {
         // Check for literal integer exponent
-        if let UntypedKind::Literal { value, unit } = &args[1].kind {
-            if unit.is_none()
+        if let UntypedKind::Literal { value, unit } = &args[1].kind
+            && unit.is_none()
                 && value.fract() == 0.0
                 && *value >= i8::MIN as f64
                 && *value <= i8::MAX as f64
@@ -1119,12 +1120,11 @@ pub fn type_as_kernel_call(
                     output_type,
                 ));
             }
-        }
 
         // Check for fractional exponent (division of two integer literals)
         // Example: pow(x, 1/3) or pow(x, 2/3)
-        if let UntypedKind::Binary { op, left, right } = &args[1].kind {
-            if matches!(op, continuum_cdsl_ast::foundation::BinaryOp::Div) {
+        if let UntypedKind::Binary { op, left, right } = &args[1].kind
+            && matches!(op, continuum_cdsl_ast::foundation::BinaryOp::Div) {
                 // Check if both sides are integer literals
                 if let (
                     UntypedKind::Literal {
@@ -1212,7 +1212,6 @@ pub fn type_as_kernel_call(
                     }
                 }
             }
-        }
 
         // Non-integer exponent with units: error
         let exp_arg = type_expression(&args[1], ctx, None)?;
@@ -1358,7 +1357,6 @@ mod tests {
         assert_eq!(path, None);
     }
 
-    #[test]
     #[test]
     fn test_get_root_kind_local() {
         let expr = make_local("foo");

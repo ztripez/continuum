@@ -59,7 +59,7 @@ pub async fn spawn_simulation<S: ProcessSpawner>(
     *state.child.lock().await = Some(child);
 
     // Wait for socket to exist (5 second timeout)
-    if let Err(_) = wait_for_condition(|| state.socket.exists(), 5000, "timeout").await {
+    if wait_for_condition(|| state.socket.exists(), 5000, "timeout").await.is_err() {
         // Kill the process since it failed to create socket
         if let Err(kill_err) = kill_simulation(state).await {
             error!("Failed to kill unresponsive process: {kill_err}");

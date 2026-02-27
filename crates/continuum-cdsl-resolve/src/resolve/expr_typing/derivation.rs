@@ -113,7 +113,7 @@ pub fn derive_return_type(
                     )]);
                 }
             };
-            if dim < 2 || dim > 4 {
+            if !(2..=4).contains(&dim) {
                 return Err(vec![CompileError::new(
                     ErrorKind::TypeMismatch,
                     span,
@@ -140,7 +140,7 @@ pub fn derive_return_type(
                     )]);
                 }
             };
-            if r < 2 || r > 4 || c < 2 || c > 4 {
+            if !(2..=4).contains(&r) || !(2..=4).contains(&c) {
                 return Err(vec![CompileError::new(
                     ErrorKind::TypeMismatch,
                     span,

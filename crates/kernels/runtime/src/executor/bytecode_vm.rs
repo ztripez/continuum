@@ -59,6 +59,7 @@ pub(crate) fn zero_value_for_type(ty: &Type) -> Value {
 }
 
 /// Implementation of the VM execution context that bridges to runtime storage.
+#[allow(dead_code)]
 pub struct VMContext<'a> {
     /// Current execution phase
     pub phase: Phase,
@@ -466,7 +467,7 @@ impl<'a> ExecutionContext for VMContext<'a> {
         // For now, assume instances have an "__index" field
         let index = instance_map
             .iter()
-            .find(|(k, _)| k == &"__index")
+            .find(|(k, _)| k == "__index")
             .and_then(|(_, v)| v.as_scalar())
             .ok_or_else(|| ExecutionError::InvalidOperand {
                 message: "Instance missing __index field".to_string(),

@@ -40,7 +40,7 @@ pub struct OpcodeSpec {
 /// jump table. The list is lazily initialized on the first call.
 pub fn opcode_specs() -> &'static [OpcodeSpec] {
     static SPECS: OnceLock<Vec<OpcodeSpec>> = OnceLock::new();
-    SPECS.get_or_init(|| build_specs())
+    SPECS.get_or_init(build_specs)
 }
 
 /// Total number of opcodes in the system.
@@ -59,7 +59,9 @@ pub fn metadata_for(kind: OpcodeKind) -> &'static OpcodeMetadata {
     METADATA.get_or_init(|| {
         let mut table: [Option<&'static OpcodeMetadata>; OPCODE_COUNT] = [None; OPCODE_COUNT];
         for spec in opcode_specs() {
-            table[spec.kind as usize] = unsafe { std::mem::transmute(&spec.metadata) };
+            table[spec.kind as usize] = unsafe {
+                std::mem::transmute::<&OpcodeMetadata, Option<&OpcodeMetadata>>(&spec.metadata)
+            };
         }
         std::array::from_fn(|index| {
             table[index]

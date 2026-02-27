@@ -226,19 +226,14 @@ pub struct RawWarmupPolicy {
 }
 
 /// Behavior when warmup times out without converging.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WarmupTimeout {
     /// Emit error diagnostic and abort compilation
+    #[default]
     Fail,
 
     /// Continue with unconverged state (emit warning)
     Continue,
-}
-
-impl Default for WarmupTimeout {
-    fn default() -> Self {
-        Self::Fail
-    }
 }
 
 /// Const entry with full metadata.

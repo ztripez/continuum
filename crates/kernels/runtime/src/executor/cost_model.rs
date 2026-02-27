@@ -517,11 +517,10 @@ impl CostModel {
         }
 
         // Small population: consider L3 for heavy expressions
-        if population <= self.l3_population_threshold {
-            if self.l3_available && complexity.is_heavy(&self.thresholds) {
+        if population <= self.l3_population_threshold
+            && self.l3_available && complexity.is_heavy(&self.thresholds) {
                 return LoweringStrategy::SubDag;
             }
-        }
 
         // Default: L1 (instance-parallel) works well for mid-range
         LoweringStrategy::InstanceParallel

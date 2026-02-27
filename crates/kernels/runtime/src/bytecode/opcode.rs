@@ -398,7 +398,7 @@ impl OperandCount {
     pub fn matches(self, len: usize) -> bool {
         match self {
             OperandCount::Fixed(count) => len == count,
-            OperandCount::Variable { min, max } => len >= min && max.map_or(true, |max| len <= max),
+            OperandCount::Variable { min, max } => len >= min && max.is_none_or(|max| len <= max),
         }
     }
 }

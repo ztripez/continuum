@@ -167,6 +167,15 @@ where
     channels: IndexMap<K, Vec<V>>,
 }
 
+impl<K, V> Default for GenericInputChannels<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K, V> GenericInputChannels<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -229,21 +238,12 @@ where
 /// This struct manages two separate accumulation channels:
 /// - Global signals (keyed by SignalId)
 /// - Member signal instances (keyed by (EntityId, instance_idx, member_path))
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct InputChannels {
     /// Accumulated inputs per signal
     channels: GenericInputChannels<SignalId, f64>,
     /// Accumulated inputs per member signal instance
     member_channels: GenericInputChannels<(EntityId, u32, Path), f64>,
-}
-
-impl Default for InputChannels {
-    fn default() -> Self {
-        Self {
-            channels: GenericInputChannels::new(),
-            member_channels: GenericInputChannels::new(),
-        }
-    }
 }
 
 impl InputChannels {
@@ -663,11 +663,10 @@ impl EntityStorage {
         field: String,
         value: Value,
     ) {
-        if let Some(instances) = self.current.get_mut(entity) {
-            if let Some(data) = instances.get_mut(instance) {
+        if let Some(instances) = self.current.get_mut(entity)
+            && let Some(data) = instances.get_mut(instance) {
                 data.set(field, value);
             }
-        }
     }
 
     /// Get the number of instances for an entity type

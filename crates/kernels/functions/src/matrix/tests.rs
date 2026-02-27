@@ -523,7 +523,7 @@ fn test_eigenvalues_eigenvectors_mat4_correctness() {
     let eigenvecs = eigenvectors_mat4(Mat4(m_data));
 
     // Test A·v = λ·v for each eigenvalue/eigenvector pair
-    for i in 0..4 {
+    for (i, eigenval) in eigenvals.iter().enumerate() {
         let v = [
             eigenvecs.0[i * 4],
             eigenvecs.0[i * 4 + 1],
@@ -532,10 +532,10 @@ fn test_eigenvalues_eigenvectors_mat4_correctness() {
         ];
         let av = mat4_times_vec4(Mat4(m_data), v);
         let lambda_v = [
-            eigenvals[i] * v[0],
-            eigenvals[i] * v[1],
-            eigenvals[i] * v[2],
-            eigenvals[i] * v[3],
+            eigenval * v[0],
+            eigenval * v[1],
+            eigenval * v[2],
+            eigenval * v[3],
         ];
 
         for k in 0..4 {
@@ -614,8 +614,8 @@ fn test_svd_mat2_reconstruction() {
     for col in 0..2 {
         for row in 0..2 {
             // A[col][row] = sum_k U[k][row] * s[k] * V^T[col][k]
-            for k in 0..2 {
-                reconstructed[col * 2 + row] += u.0[k * 2 + row] * s[k] * vt.0[col * 2 + k];
+            for (k, s_k) in s.iter().enumerate() {
+                reconstructed[col * 2 + row] += u.0[k * 2 + row] * s_k * vt.0[col * 2 + k];
             }
         }
     }
@@ -645,8 +645,8 @@ fn test_svd_mat3_reconstruction() {
     for col in 0..3 {
         for row in 0..3 {
             // A[col][row] = sum_k U[k][row] * s[k] * V^T[col][k]
-            for k in 0..3 {
-                reconstructed[col * 3 + row] += u.0[k * 3 + row] * s[k] * vt.0[col * 3 + k];
+            for (k, s_k) in s.iter().enumerate() {
+                reconstructed[col * 3 + row] += u.0[k * 3 + row] * s_k * vt.0[col * 3 + k];
             }
         }
     }

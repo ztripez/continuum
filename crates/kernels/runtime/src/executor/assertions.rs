@@ -38,7 +38,6 @@ use crate::types::{AssertionSeverity, Dt, FaultPolicy, SignalId, Value};
 use super::context::AssertContext;
 
 /// Function that evaluates an assertion condition
-
 pub type AssertionFn = Box<dyn Fn(&AssertContext) -> bool + Send + Sync>;
 
 /// Represents a single violation of a simulation invariant detected at runtime.
@@ -126,6 +125,7 @@ impl AssertionChecker {
     ///
     /// Returns Ok(()) if all assertions pass or only warnings were emitted.
     /// Returns Err if any Error or Fatal assertion failed.
+    #[allow(clippy::too_many_arguments)]
     pub fn check_signal(
         &mut self,
         signal: &SignalId,
@@ -212,6 +212,7 @@ impl AssertionChecker {
     }
 
     /// Check all assertions for all signals that were resolved
+    #[allow(clippy::too_many_arguments)]
     pub fn check_all(
         &mut self,
         resolved_signals: &[(SignalId, Value)],

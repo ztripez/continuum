@@ -205,8 +205,8 @@ pub fn detect_era_cycles(eras: &[Era]) -> Vec<CompileError> {
     let mut rec_stack = Vec::new();
 
     for era in eras {
-        if !visited.contains(&era.id) {
-            if let Some(cycle) = dfs_cycle(&era.id, &graph, &mut visited, &mut rec_stack) {
+        if !visited.contains(&era.id)
+            && let Some(cycle) = dfs_cycle(&era.id, &graph, &mut visited, &mut rec_stack) {
                 warnings.push(CompileError::new(
                     ErrorKind::CyclicDependency,
                     era.span,
@@ -216,7 +216,6 @@ pub fn detect_era_cycles(eras: &[Era]) -> Vec<CompileError> {
                     ),
                 ));
             }
-        }
     }
 
     warnings

@@ -123,16 +123,14 @@ impl Runtime {
             .map_err(|e| Error::Checkpoint(e.to_string()))?;
 
         // Validate world IR hash
-        if !force {
-            if let Some(current_hash) = self.world_ir_hash {
-                if checkpoint.header.world_ir_hash != current_hash {
+        if !force
+            && let Some(current_hash) = self.world_ir_hash
+                && checkpoint.header.world_ir_hash != current_hash {
                     return Err(Error::Checkpoint(
                         "World IR mismatch: checkpoint hash does not match current world"
                             .to_string(),
                     ));
                 }
-            }
-        }
 
         // Restore state
         self.signals = checkpoint.state.signals;
@@ -169,14 +167,13 @@ impl Runtime {
         checkpoint: crate::checkpoint::Checkpoint,
     ) -> Result<()> {
         // Validate world IR hash
-        if let Some(ref our_hash) = self.world_ir_hash {
-            if checkpoint.header.world_ir_hash != *our_hash {
+        if let Some(ref our_hash) = self.world_ir_hash
+            && checkpoint.header.world_ir_hash != *our_hash {
                 return Err(Error::Checkpoint(format!(
                     "World IR mismatch: checkpoint={:?}, current={:?}",
                     checkpoint.header.world_ir_hash, our_hash
                 )));
             }
-        }
 
         // Restore core state
         self.tick = checkpoint.header.tick;

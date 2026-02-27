@@ -48,7 +48,7 @@ fn test_or_vs_and() {
     // a or b and c should parse as: a or (b and c)
     let expr = parse("a or b and c");
     assert!(is_binary(&expr, "Or"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Local(_)));
     assert!(is_binary(right, "And"));
 }
@@ -58,7 +58,7 @@ fn test_or_left_associative() {
     // a or b or c should parse as: (a or b) or c
     let expr = parse("a or b or c");
     assert!(is_binary(&expr, "Or"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "Or"));
 }
 
@@ -71,7 +71,7 @@ fn test_and_vs_comparison() {
     // a and b == c should parse as: a and (b == c)
     let expr = parse("a and b == c");
     assert!(is_binary(&expr, "And"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Local(_)));
     assert!(is_binary(right, "Eq"));
 }
@@ -81,7 +81,7 @@ fn test_and_left_associative() {
     // a and b and c should parse as: (a and b) and c
     let expr = parse("a and b and c");
     assert!(is_binary(&expr, "And"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "And"));
 }
 
@@ -94,7 +94,7 @@ fn test_comparison_vs_addition() {
     // a + b == c should parse as: (a + b) == c
     let expr = parse("a + b == c");
     assert!(is_binary(&expr, "Eq"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "Add"));
     assert!(matches!(right.kind, UntypedKind::Local(_)));
 }
@@ -114,7 +114,7 @@ fn test_comparison_left_associative() {
     // a < b < c should parse as: (a < b) < c
     let expr = parse("a < b < c");
     assert!(is_binary(&expr, "Lt"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "Lt"));
 }
 
@@ -127,7 +127,7 @@ fn test_addition_vs_multiplication() {
     // a + b * c should parse as: a + (b * c)
     let expr = parse("a + b * c");
     assert!(is_binary(&expr, "Add"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Local(_)));
     assert!(is_binary(right, "Mul"));
 }
@@ -137,7 +137,7 @@ fn test_subtraction_vs_multiplication() {
     // a - b / c should parse as: a - (b / c)
     let expr = parse("a - b / c");
     assert!(is_binary(&expr, "Sub"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Local(_)));
     assert!(is_binary(right, "Div"));
 }
@@ -147,7 +147,7 @@ fn test_addition_left_associative() {
     // a + b - c should parse as: (a + b) - c
     let expr = parse("a + b - c");
     assert!(is_binary(&expr, "Sub"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "Add"));
 }
 
@@ -160,7 +160,7 @@ fn test_multiplication_vs_power() {
     // a * b ^ c should parse as: a * (b ^ c)
     let expr = parse("a * b ^ c");
     assert!(is_binary(&expr, "Mul"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Local(_)));
     assert!(is_binary(right, "Pow"));
 }
@@ -170,7 +170,7 @@ fn test_division_vs_power() {
     // a / b ^ c should parse as: a / (b ^ c)
     let expr = parse("a / b ^ c");
     assert!(is_binary(&expr, "Div"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Local(_)));
     assert!(is_binary(right, "Pow"));
 }
@@ -187,7 +187,7 @@ fn test_multiplication_left_associative() {
     // a * b / c should parse as: (a * b) / c
     let expr = parse("a * b / c");
     assert!(is_binary(&expr, "Div"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "Mul"));
 }
 
@@ -200,7 +200,7 @@ fn test_power_vs_unary() {
     // -a ^ b should parse as: (-a) ^ b [unary binds tighter]
     let expr = parse("-a ^ b");
     assert!(is_binary(&expr, "Pow"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Unary { .. }));
 }
 
@@ -209,7 +209,7 @@ fn test_power_right_associative() {
     // a ^ b ^ c should parse as: a ^ (b ^ c) [RIGHT associative]
     let expr = parse("a ^ b ^ c");
     assert!(is_binary(&expr, "Pow"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Local(_)));
     assert!(is_binary(right, "Pow"));
 }
@@ -301,9 +301,9 @@ fn test_complex_expression_1() {
     // a + b * c ^ d should parse as: a + (b * (c ^ d))
     let expr = parse("a + b * c ^ d");
     assert!(is_binary(&expr, "Add"));
-    let (_left, right) = get_operands(&expr).unwrap();
+    let (_left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(right, "Mul"));
-    let (_left2, right2) = get_operands(right).unwrap();
+    let (_left2, right2) = get_operands(right).expect("test: expected binary operands");
     assert!(is_binary(right2, "Pow"));
 }
 
@@ -313,13 +313,13 @@ fn test_complex_expression_2() {
     // Should parse as: a or (b and (c == (d + (e * f))))
     let expr = parse("a or b and c == d + e * f");
     assert!(is_binary(&expr, "Or"));
-    let (_left, right) = get_operands(&expr).unwrap();
+    let (_left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(right, "And"));
-    let (_left2, right2) = get_operands(right).unwrap();
+    let (_left2, right2) = get_operands(right).expect("test: expected binary operands");
     assert!(is_binary(right2, "Eq"));
-    let (_left3, right3) = get_operands(right2).unwrap();
+    let (_left3, right3) = get_operands(right2).expect("test: expected binary operands");
     assert!(is_binary(right3, "Add"));
-    let (_left4, right4) = get_operands(right3).unwrap();
+    let (_left4, right4) = get_operands(right3).expect("test: expected binary operands");
     assert!(is_binary(right4, "Mul"));
 }
 
@@ -329,7 +329,7 @@ fn test_complex_expression_3() {
     // Should parse as: (-(a.field)) + ((b ^ c) * d)
     let expr = parse("-a.field + b ^ c * d");
     assert!(is_binary(&expr, "Add"));
-    let (left, right) = get_operands(&expr).unwrap();
+    let (left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(matches!(left.kind, UntypedKind::Unary { .. }));
     assert!(is_binary(right, "Mul"));
 }
@@ -343,7 +343,7 @@ fn test_parentheses_override_1() {
     // (a + b) * c should parse as: (a + b) * c
     let expr = parse("(a + b) * c");
     assert!(is_binary(&expr, "Mul"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "Add"));
 }
 
@@ -352,7 +352,7 @@ fn test_parentheses_override_2() {
     // a ^ (b ^ c) should parse as: a ^ (b ^ c) [explicit right assoc]
     let expr = parse("a ^ (b ^ c)");
     assert!(is_binary(&expr, "Pow"));
-    let (_left, right) = get_operands(&expr).unwrap();
+    let (_left, right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(right, "Pow"));
 }
 
@@ -361,6 +361,6 @@ fn test_nested_parentheses() {
     // ((a + b) * c) + d
     let expr = parse("((a + b) * c) + d");
     assert!(is_binary(&expr, "Add"));
-    let (left, _right) = get_operands(&expr).unwrap();
+    let (left, _right) = get_operands(&expr).expect("test: expected binary operands");
     assert!(is_binary(left, "Mul"));
 }

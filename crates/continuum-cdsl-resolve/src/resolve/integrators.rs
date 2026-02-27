@@ -421,7 +421,7 @@ mod tests {
             span: make_span(),
         });
 
-        let errors = validate_node_integrator(&mut node, &registry);
+        let errors = validate_node_integrator(&mut node, registry);
 
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("integrator mismatch"));
@@ -462,7 +462,7 @@ mod tests {
             span: make_span(),
         });
 
-        let errors = validate_node_integrator(&mut node, &registry);
+        let errors = validate_node_integrator(&mut node, registry);
 
         assert!(errors.is_empty());
     }
@@ -492,7 +492,7 @@ mod tests {
             span: make_span(),
         });
 
-        let errors = validate_node_integrator(&mut node, &registry);
+        let errors = validate_node_integrator(&mut node, registry);
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingIntegratorHint);
@@ -579,7 +579,7 @@ mod tests {
         node.executions.push(make_execution("rk4"));
         node.executions.push(make_execution("rk4"));
 
-        let errors = validate_node_integrator(&mut node, &registry);
+        let errors = validate_node_integrator(&mut node, registry);
         assert!(
             errors.is_empty(),
             "Multiple calls to same method should pass"
@@ -604,7 +604,7 @@ mod tests {
         node.executions.push(make_execution("rk4"));
         node.executions.push(make_execution("euler"));
 
-        let errors = validate_node_integrator(&mut node, &registry);
+        let errors = validate_node_integrator(&mut node, registry);
 
         // Should report mismatch for euler call only
         assert_eq!(errors.len(), 1);
@@ -644,7 +644,7 @@ mod tests {
             span: make_span(),
         });
 
-        let errors = validate_node_integrator(&mut node, &registry);
+        let errors = validate_node_integrator(&mut node, registry);
 
         // Generic integrate should be allowed regardless of hint
         assert!(

@@ -9,7 +9,7 @@ use crate::bytecode::operand::BlockId;
 /// the VM. They represent a self-contained computation (like a signal resolve
 /// or an operator effect) and include all nested blocks required for control
 /// flow operations like `Aggregate` or `Fold`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BytecodeProgram {
     /// Ordered list of blocks in the program.
     ///

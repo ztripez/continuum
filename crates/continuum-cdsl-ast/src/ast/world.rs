@@ -98,7 +98,6 @@ impl World {
     ///     debug: false,
     ///     policy: WorldPolicy::default(),
     /// };
-
     /// let world = World::new(decl);
     /// assert!(world.globals.is_empty());
     /// ```
@@ -180,7 +179,6 @@ impl CompiledWorld {
     ///     debug: false,
     ///     policy: WorldPolicy::default(),
     /// };
-
     /// let world = World::new(decl);
     /// let dag_set = DagSet::default();
     /// let compiled = CompiledWorld::new(world, dag_set);

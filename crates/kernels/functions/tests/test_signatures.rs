@@ -1,7 +1,8 @@
 // Test KERNEL_SIGNATURES distributed slice population
 
-// Import the library to trigger kernel registration
-#[allow(unused_imports)]
+// Import the library to trigger kernel registration via linkme distributed slices.
+// Must be a `use` import (not just a dev-dependency) so linkme distributed slices link in.
+#[allow(unused_imports, clippy::single_component_path_imports)]
 use continuum_functions;
 use continuum_kernel_types::KERNEL_SIGNATURES;
 
@@ -51,7 +52,9 @@ fn test_kernel_signatures_populated() {
     );
 
     // Verify bare-name effect operations (empty namespace)
-    let effect_ops = namespaces.get("").unwrap();
+    let effect_ops = namespaces
+        .get("")
+        .expect("test: bare-name namespace must exist");
     assert!(effect_ops.contains(&"emit"), "emit not found");
     assert!(effect_ops.contains(&"spawn"), "spawn not found");
     assert!(effect_ops.contains(&"destroy"), "destroy not found");
@@ -70,10 +73,7 @@ fn test_representative_signatures() {
 
     assert_eq!(add_sig.purity, KernelPurity::Pure);
     assert_eq!(add_sig.params.len(), 2);
-    assert!(matches!(
-        add_sig.params[0].shape,
-        ShapeConstraint::Any { .. }
-    ));
+    assert!(matches!(add_sig.params[0].shape, ShapeConstraint::Any));
     assert!(matches!(
         add_sig.params[1].shape,
         ShapeConstraint::SameAs(0)
@@ -101,7 +101,7 @@ fn test_representative_signatures() {
     // Test effect operation (bare name)
     let emit_sig = KERNEL_SIGNATURES
         .iter()
-        .find(|sig| sig.id.namespace == "" && sig.id.name == "emit")
+        .find(|sig| sig.id.namespace.is_empty() && sig.id.name == "emit")
         .expect("emit not found");
 
     assert_eq!(emit_sig.purity, KernelPurity::Effect);

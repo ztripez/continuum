@@ -33,8 +33,8 @@ pub fn verify_barrier_semantics(dag: &ExecutableDag) -> Result<(), BarrierViolat
                     aggregate_levels.insert(output_signal.clone(), level_idx);
 
                     // Verify: aggregate must be after member signal resolution
-                    if let Some(&member_level) = member_signal_levels.get(member_signal) {
-                        if level_idx <= member_level {
+                    if let Some(&member_level) = member_signal_levels.get(member_signal)
+                        && level_idx <= member_level {
                             return Err(BarrierViolation::AggregateBeforeMemberSignal {
                                 aggregate_signal: output_signal.clone(),
                                 member_signal: member_signal.clone(),
@@ -42,13 +42,12 @@ pub fn verify_barrier_semantics(dag: &ExecutableDag) -> Result<(), BarrierViolat
                                 member_level,
                             });
                         }
-                    }
                 }
                 NodeKind::SignalResolve { signal, .. } => {
                     // Check if this signal reads from any aggregate
                     for read_signal in &node.reads {
-                        if let Some(&agg_level) = aggregate_levels.get(read_signal) {
-                            if level_idx <= agg_level {
+                        if let Some(&agg_level) = aggregate_levels.get(read_signal)
+                            && level_idx <= agg_level {
                                 return Err(BarrierViolation::SignalBeforeAggregate {
                                     signal: signal.clone(),
                                     aggregate_signal: read_signal.clone(),
@@ -56,7 +55,6 @@ pub fn verify_barrier_semantics(dag: &ExecutableDag) -> Result<(), BarrierViolat
                                     aggregate_level: agg_level,
                                 });
                             }
-                        }
                     }
                 }
                 _ => {}

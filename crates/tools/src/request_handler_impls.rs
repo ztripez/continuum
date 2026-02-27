@@ -893,8 +893,8 @@ impl RequestHandler for CheckpointSaveHandler {
             });
 
         // Ensure directory exists
-        if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
+        if let Some(parent) = path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent) {
                 return WorldResponse {
                     id: req.id,
                     ok: false,
@@ -902,7 +902,6 @@ impl RequestHandler for CheckpointSaveHandler {
                     error: Some(format!("Failed to create checkpoint directory: {}", e)),
                 };
             }
-        }
 
         // Request checkpoint (uses runtime's checkpoint writer)
         let rt = state.runtime.lock().expect("runtime mutex poisoned");
@@ -1018,8 +1017,8 @@ impl RequestHandler for CheckpointListHandler {
         if let Ok(entries) = std::fs::read_dir(&checkpoint_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "ckpt") {
-                    if let Ok(metadata) = entry.metadata() {
+                if path.extension().is_some_and(|ext| ext == "ckpt")
+                    && let Ok(metadata) = entry.metadata() {
                         checkpoints.push(serde_json::json!({
                             "path": path.display().to_string(),
                             "size": metadata.len(),
@@ -1028,7 +1027,6 @@ impl RequestHandler for CheckpointListHandler {
                             }),
                         }));
                     }
-                }
             }
         }
 

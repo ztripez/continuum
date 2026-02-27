@@ -59,7 +59,7 @@ fn test_compile_statements_basic() {
 
     let ctx = TypingContext {
         type_table: &type_table,
-        kernel_registry: &registry,
+        kernel_registry: registry,
         function_table: &function_table,
         signal_types: &signal_types,
         field_types: &field_types,
@@ -118,7 +118,7 @@ fn test_compile_statements_nested_let() {
 
     let ctx = TypingContext {
         type_table: &type_table,
-        kernel_registry: &registry,
+        kernel_registry: registry,
         function_table: &function_table,
         signal_types: &signal_types,
         field_types: &field_types,
@@ -172,7 +172,7 @@ fn test_compile_statements_type_mismatch() {
 
     let ctx = TypingContext {
         type_table: &type_table,
-        kernel_registry: &registry,
+        kernel_registry: registry,
         function_table: &function_table,
         signal_types: &signal_types,
         field_types: &field_types,
@@ -216,7 +216,7 @@ fn test_compile_statements_undefined_signal() {
 
     let ctx = TypingContext {
         type_table: &type_table,
-        kernel_registry: &registry,
+        kernel_registry: registry,
         function_table: &function_table,
         signal_types: &signal_types,
         field_types: &field_types,
@@ -262,7 +262,7 @@ fn test_compile_statements_phase_boundary_violation() {
 
     let ctx = TypingContext {
         type_table: &type_table,
-        kernel_registry: &registry,
+        kernel_registry: registry,
         function_table: &function_table,
         signal_types: &signal_types,
         field_types: &field_types,
@@ -521,7 +521,7 @@ fn test_compile_execution_blocks_with_typed_expression() {
     let type_table = crate::resolve::types::TypeTable::new();
     let ctx = make_test_context(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,
@@ -590,7 +590,7 @@ fn test_compile_execution_blocks_populates_node_reads() {
     let type_table = crate::resolve::types::TypeTable::new();
     let ctx = make_test_context(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,
@@ -647,7 +647,7 @@ fn test_compile_execution_blocks_union_multiple_blocks() {
     let type_table = crate::resolve::types::TypeTable::new();
     let ctx = make_test_context(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,
@@ -697,7 +697,7 @@ fn test_compile_execution_blocks_includes_assertions() {
     let type_table = crate::resolve::types::TypeTable::new();
     let ctx = make_test_context(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,
@@ -741,7 +741,7 @@ fn test_compile_execution_blocks_untyped_expression_success() {
     let type_table = crate::resolve::types::TypeTable::new();
     let ctx = make_test_context(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,
@@ -882,7 +882,7 @@ fn test_compile_execution_blocks_union_duplicates() {
     let type_table = crate::resolve::types::TypeTable::new();
     let ctx = make_test_context(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,
@@ -938,7 +938,7 @@ fn test_compile_execution_blocks_multiple_assertions() {
     let type_table = crate::resolve::types::TypeTable::new();
     let ctx = make_test_context(
         &type_table,
-        &registry,
+        registry,
         &function_table,
         &signal_types,
         &field_types,

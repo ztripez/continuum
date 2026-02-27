@@ -135,7 +135,7 @@ pub fn run_simulation(
         // Checkpoint logic
         if let Some(checkpoint) = &options.checkpoint {
             let should_checkpoint = {
-                let stride_met = runtime.tick() % checkpoint.stride == 0;
+                let stride_met = runtime.tick().is_multiple_of(checkpoint.stride);
                 let wall_clock_met = checkpoint
                     .wall_clock_interval
                     .map(|interval| last_checkpoint_time.elapsed() >= interval)
@@ -156,11 +156,10 @@ pub fn run_simulation(
 
                 // Update 'latest' symlink
                 let latest_link = checkpoint.checkpoint_dir.join("latest");
-                if let Err(err) = std::fs::remove_file(&latest_link) {
-                    if err.kind() != std::io::ErrorKind::NotFound {
+                if let Err(err) = std::fs::remove_file(&latest_link)
+                    && err.kind() != std::io::ErrorKind::NotFound {
                         return Err(RunError::Execution(err.to_string()));
                     }
-                }
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::symlink;

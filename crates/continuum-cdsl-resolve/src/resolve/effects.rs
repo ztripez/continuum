@@ -118,7 +118,7 @@ fn scan_for_effect_violations(
     match &expr.expr {
         ExprKind::Call { kernel, args } => {
             // Validate this kernel call
-            let Some(signature) = registry.get(&kernel) else {
+            let Some(signature) = registry.get(kernel) else {
                 // Unknown kernel - caught by type validation
                 errors.push(CompileError::new(
                     ErrorKind::UnknownKernel,
@@ -129,7 +129,7 @@ fn scan_for_effect_violations(
                     ),
                 ));
                 for arg in args {
-                    scan_for_effect_violations(&arg, ctx, registry, errors);
+                    scan_for_effect_violations(arg, ctx, registry, errors);
                 }
                 return;
             };
@@ -149,66 +149,66 @@ fn scan_for_effect_violations(
 
             // Recursively validate arguments
             for arg in args {
-                scan_for_effect_violations(&arg, ctx, registry, errors);
+                scan_for_effect_violations(arg, ctx, registry, errors);
             }
         }
 
         ExprKind::Let { value, body, .. } => {
-            scan_for_effect_violations(&value, ctx, registry, errors);
-            scan_for_effect_violations(&body, ctx, registry, errors);
+            scan_for_effect_violations(value, ctx, registry, errors);
+            scan_for_effect_violations(body, ctx, registry, errors);
         }
 
         ExprKind::Struct { fields, .. } => {
             for (_name, field_expr) in fields {
-                scan_for_effect_violations(&field_expr, ctx, registry, errors);
+                scan_for_effect_violations(field_expr, ctx, registry, errors);
             }
         }
 
         ExprKind::FieldAccess { object, .. } => {
-            scan_for_effect_violations(&object, ctx, registry, errors);
+            scan_for_effect_violations(object, ctx, registry, errors);
         }
 
         ExprKind::Index { index, .. } => {
-            scan_for_effect_violations(&index, ctx, registry, errors);
+            scan_for_effect_violations(index, ctx, registry, errors);
         }
 
         ExprKind::Vector(elements) => {
             for elem in elements {
-                scan_for_effect_violations(&elem, ctx, registry, errors);
+                scan_for_effect_violations(elem, ctx, registry, errors);
             }
         }
 
         ExprKind::Aggregate { source, body, .. } => {
-            scan_for_effect_violations(&source, ctx, registry, errors);
-            scan_for_effect_violations(&body, ctx, registry, errors);
+            scan_for_effect_violations(source, ctx, registry, errors);
+            scan_for_effect_violations(body, ctx, registry, errors);
         }
 
         ExprKind::Fold {
             source, init, body, ..
         } => {
-            scan_for_effect_violations(&source, ctx, registry, errors);
-            scan_for_effect_violations(&init, ctx, registry, errors);
-            scan_for_effect_violations(&body, ctx, registry, errors);
+            scan_for_effect_violations(source, ctx, registry, errors);
+            scan_for_effect_violations(init, ctx, registry, errors);
+            scan_for_effect_violations(body, ctx, registry, errors);
         }
 
         ExprKind::Filter { source, predicate } => {
-            scan_for_effect_violations(&source, ctx, registry, errors);
-            scan_for_effect_violations(&predicate, ctx, registry, errors);
+            scan_for_effect_violations(source, ctx, registry, errors);
+            scan_for_effect_violations(predicate, ctx, registry, errors);
         }
 
         ExprKind::Nearest { position, .. } => {
-            scan_for_effect_violations(&position, ctx, registry, errors);
+            scan_for_effect_violations(position, ctx, registry, errors);
         }
 
         ExprKind::Within {
             position, radius, ..
         } => {
-            scan_for_effect_violations(&position, ctx, registry, errors);
-            scan_for_effect_violations(&radius, ctx, registry, errors);
+            scan_for_effect_violations(position, ctx, registry, errors);
+            scan_for_effect_violations(radius, ctx, registry, errors);
         }
 
         ExprKind::Neighbors { instance, .. } => {
-            scan_for_effect_violations(&instance, ctx, registry, errors);
+            scan_for_effect_violations(instance, ctx, registry, errors);
         }
 
         // Leaf nodes - no kernel calls possible

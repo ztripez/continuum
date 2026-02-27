@@ -86,8 +86,10 @@ pub struct RunWorldIntent {
 impl RunWorldIntent {
     /// Build a new intent with default run options.
     pub fn new(source: WorldSource, steps: u64) -> Self {
-        let mut options = RunOptions::default();
-        options.steps = steps;
+        let options = RunOptions {
+            steps,
+            ..Default::default()
+        };
         Self {
             source,
             options,

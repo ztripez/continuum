@@ -27,7 +27,11 @@ fn assert_type_parses(type_str: &str) {
         type_str,
         result.err()
     );
-    assert_eq!(result.unwrap().len(), 1, "Expected exactly one declaration");
+    assert_eq!(
+        result.expect("test: parse should succeed").len(),
+        1,
+        "Expected exactly one declaration"
+    );
 }
 
 // === Basic Type Expressions ===

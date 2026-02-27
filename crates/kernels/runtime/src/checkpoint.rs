@@ -147,7 +147,7 @@ impl MemberSignalData {
             for (instance_idx, value) in values {
                 buffer
                     .set_current(signal_name, *instance_idx, value.clone())
-                    .map_err(|e| CheckpointError::Serialization(e))?;
+                    .map_err(CheckpointError::Serialization)?;
             }
         }
 
@@ -408,7 +408,7 @@ pub enum CheckpointError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    
 
     fn create_test_checkpoint() -> Checkpoint {
         Checkpoint {

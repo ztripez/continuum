@@ -108,7 +108,7 @@ where
 
     // Work buffer for reduction levels
     let mut current: Vec<T> = values.to_vec();
-    let mut next: Vec<T> = Vec::with_capacity((values.len() + 1) / 2);
+    let mut next: Vec<T> = Vec::with_capacity(values.len().div_ceil(2));
 
     while current.len() > 1 {
         next.clear();
@@ -164,7 +164,7 @@ where
         .map(|(i, &v)| IndexedValue::new(i, v))
         .collect();
 
-    let mut next: Vec<IndexedValue<T>> = Vec::with_capacity((values.len() + 1) / 2);
+    let mut next: Vec<IndexedValue<T>> = Vec::with_capacity(values.len().div_ceil(2));
 
     while current.len() > 1 {
         next.clear();

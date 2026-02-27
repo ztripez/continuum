@@ -17,7 +17,7 @@ fn make_node(id: &str, reads: &[&str], writes: Option<&str>) -> DagNode {
     DagNode {
         id: NodeId(id.to_string()),
         reads: reads.iter().map(|s| SignalId::from(*s)).collect(),
-        writes: writes.map(|s| SignalId::from(s)),
+        writes: writes.map(SignalId::from),
         kind: NodeKind::SignalResolve {
             signal: SignalId::from(writes.unwrap_or(id)),
             resolver_idx: 0,

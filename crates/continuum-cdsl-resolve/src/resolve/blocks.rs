@@ -97,7 +97,6 @@ use std::collections::HashSet;
 /// let typed = compile_statements(&stmts, &ctx).unwrap();
 /// assert_eq!(typed.len(), 1);
 /// ```
-
 /// Validates that an assignment statement is allowed in the current phase.
 ///
 /// Returns `None` if validation passes, or `Some(CompileError)` if the assignment
@@ -116,8 +115,8 @@ fn validate_assignment_phase(
     target_name: &str,
     span: continuum_cdsl_ast::Span,
 ) -> Option<CompileError> {
-    if let Some(current_phase) = phase {
-        if !allowed_phases.contains(&current_phase) {
+    if let Some(current_phase) = phase
+        && !allowed_phases.contains(&current_phase) {
             let allowed_str = if allowed_phases.len() == 1 {
                 format!("{:?} phase", allowed_phases[0])
             } else {
@@ -140,7 +139,6 @@ fn validate_assignment_phase(
                 ),
             ));
         }
-    }
     None
 }
 
@@ -885,8 +883,8 @@ pub fn compile_execution_blocks<I: Index>(
         executions.push(execution);
 
         // 6.1 Extract assertions from Assert phase blocks
-        if phase == Phase::Assert {
-            if let ExecutionBody::Statements(stmts) = &body {
+        if phase == Phase::Assert
+            && let ExecutionBody::Statements(stmts) = &body {
                 for stmt in stmts {
                     if let TypedStmt::Assert {
                         condition,
@@ -922,7 +920,6 @@ pub fn compile_execution_blocks<I: Index>(
                     }
                 }
             }
-        }
     }
 
     if !errors.is_empty() {

@@ -399,8 +399,10 @@ fn test_assertion_during_resolve() {
     let mut eras = IndexMap::new();
     eras.insert(era_id.clone(), era_config);
 
-    let mut policy = WorldPolicy::default();
-    policy.faults = FaultPolicy::Fatal;
+    let policy = WorldPolicy {
+        faults: FaultPolicy::Fatal,
+        ..Default::default()
+    };
     let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), policy);
 
     // Register resolver that produces negative values after tick 2
@@ -488,11 +490,10 @@ fn test_era_transition() {
         dt: Dt(1.0),
         strata: strata_a.clone(),
         transition: Some(Box::new(move |signals, _entities, _sim_time| {
-            if let Some(value) = signals.get(&signal_id_clone) {
-                if value.as_scalar().unwrap_or(0.0) >= 5.0 {
+            if let Some(value) = signals.get(&signal_id_clone)
+                && value.as_scalar().unwrap_or(0.0) >= 5.0 {
                     return Some(era_b_clone.clone());
                 }
-            }
             None
         })),
     };

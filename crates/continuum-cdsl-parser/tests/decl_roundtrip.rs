@@ -51,7 +51,7 @@ fn test_signal_declaration() {
         Declaration::Node(node) => {
             assert_eq!(node.path.to_string(), "temperature");
             assert!(matches!(node.role, RoleData::Signal));
-            assert!(node.attributes.len() >= 1);
+            assert!(!node.attributes.is_empty());
             assert_eq!(node.execution_blocks.len(), 1);
             assert_eq!(node.execution_blocks[0].0, "resolve");
         }
@@ -789,7 +789,7 @@ fn test_assertion_with_unicode_in_message() {
                 Stmt::Assert { message, .. } => {
                     assert!(message
                         .as_ref()
-                        .unwrap()
+                        .expect("test: assert message should be present")
                         .contains("温度必须为正 (temperature must be positive) 🌡️"));
                 }
                 _ => panic!("Expected Stmt::Assert"),

@@ -243,7 +243,7 @@ impl Stratum {
         let cadence = self
             .cadence
             .expect("Stratum cadence must be resolved before checking eligibility");
-        tick % (cadence as u64) == 0
+        tick.is_multiple_of(cadence as u64)
     }
 }
 

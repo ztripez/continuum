@@ -167,11 +167,7 @@ fn parse_nested_config_const(stream: &mut TokenStream) -> Result<Vec<NestedBlock
             let (path, type_expr, default, span) =
                 definitions::parse_const_or_config_entry(stream, is_config)?;
 
-            if is_config {
-                entries.push((path, type_expr, default, span));
-            } else {
-                entries.push((path, type_expr, default, span));
-            }
+            entries.push((path, type_expr, default, span));
         }
 
         stream.expect(Token::RBrace)?;
@@ -217,9 +213,8 @@ pub(super) fn parse_attribute(stream: &mut TokenStream) -> Result<Attribute, Par
         let span = stream.current_span();
         match stream.advance() {
             Some(Token::Ident(s)) => s.clone(),
-            Some(token) => super::token_utils::keyword_to_string(&token).ok_or_else(|| {
-                ParseError::unexpected_token(Some(&token), "attribute name", span)
-            })?,
+            Some(token) => super::token_utils::keyword_to_string(token)
+                .ok_or_else(|| ParseError::unexpected_token(Some(token), "attribute name", span))?,
             None => {
                 return Err(ParseError::unexpected_token(None, "attribute name", span));
             }

@@ -22,6 +22,12 @@ pub struct DapServer {
     seq_number: Arc<Mutex<i64>>,
 }
 
+impl Default for DapServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DapServer {
     pub fn new() -> Self {
         let (tx, _rx) = mpsc::channel(100);

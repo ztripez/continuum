@@ -714,7 +714,7 @@ mod bare_path_integration_tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
-        let mut ctx = TypingContext::new(
+        let ctx = TypingContext::new(
             &type_table,
             kernels,
             &function_table,
@@ -727,7 +727,7 @@ mod bare_path_integration_tests {
         // Add `core` as a local variable (struct type would be needed for proper test)
         // For now, this will fail since we don't have a proper struct type for core
         // but the test documents the expected behavior
-        let result = type_expression(&expr, &ctx, None);
+        let _result = type_expression(&expr, &ctx, None);
         // This should try to resolve as field access on local, not as signal
         // (will fail in this minimal test, but documents the precedence rule)
     }

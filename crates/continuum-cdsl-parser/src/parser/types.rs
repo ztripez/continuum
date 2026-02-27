@@ -14,8 +14,8 @@ pub fn parse_path(stream: &mut TokenStream) -> Result<Path, ParseError> {
             let span = stream.current_span();
             match stream.advance() {
                 Some(Token::Ident(s)) => s.clone(),
-                Some(token) => super::token_utils::keyword_to_string(&token)
-                    .ok_or_else(|| ParseError::unexpected_token(Some(&token), "in path", span))?,
+                Some(token) => super::token_utils::keyword_to_string(token)
+                    .ok_or_else(|| ParseError::unexpected_token(Some(token), "in path", span))?,
                 None => {
                     return Err(ParseError::unexpected_token(None, "in path", span));
                 }

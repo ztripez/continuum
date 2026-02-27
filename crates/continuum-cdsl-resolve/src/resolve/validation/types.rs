@@ -180,36 +180,32 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
 /// # Returns
 ///
 /// Vector of validation errors (empty if call is valid).
-
 fn validate_literal_bounds(value: f64, ty: &Type, span: Span) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
     // Only kernel types have bounds
-    if let Type::Kernel(kernel_ty) = ty {
-        if let Some(bounds) = &kernel_ty.bounds {
+    if let Type::Kernel(kernel_ty) = ty
+        && let Some(bounds) = &kernel_ty.bounds {
             // Check minimum bound
-            if let Some(min) = bounds.min {
-                if value < min {
+            if let Some(min) = bounds.min
+                && value < min {
                     errors.push(CompileError::new(
                         ErrorKind::TypeMismatch,
                         span,
                         format!("literal value {} is below minimum bound {}", value, min),
                     ));
                 }
-            }
 
             // Check maximum bound
-            if let Some(max) = bounds.max {
-                if value > max {
+            if let Some(max) = bounds.max
+                && value > max {
                     errors.push(CompileError::new(
                         ErrorKind::TypeMismatch,
                         span,
                         format!("literal value {} exceeds maximum bound {}", value, max),
                     ));
                 }
-            }
         }
-    }
 
     errors
 }

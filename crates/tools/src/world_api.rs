@@ -48,7 +48,7 @@ pub mod framing {
         message: &WorldMessage,
     ) -> Result<(), std::io::Error> {
         let data = serde_json::to_vec(message)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         writer.write_u32(data.len() as u32).await?;
         writer.write_all(&data).await?;
         Ok(())
@@ -62,6 +62,6 @@ pub mod framing {
         let mut buffer = vec![0u8; len as usize];
         reader.read_exact(&mut buffer).await?;
         serde_json::from_slice(&buffer)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(std::io::Error::other)
     }
 }

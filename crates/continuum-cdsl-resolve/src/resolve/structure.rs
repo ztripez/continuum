@@ -90,8 +90,8 @@ pub fn validate_cycles(globals: &[Node<()>], members: &[Node<EntityId>]) -> Vec<
     // Perform DFS from each node in the graph
     let paths: Vec<_> = graph.keys().cloned().collect();
     for path in paths {
-        if !visited.contains(&path) {
-            if let Some(cycle) =
+        if !visited.contains(&path)
+            && let Some(cycle) =
                 detect_cycle_dfs(&path, &graph, &mut visited, &mut rec_stack, Vec::new())
             {
                 let span = graph[&path].1;
@@ -101,7 +101,6 @@ pub fn validate_cycles(globals: &[Node<()>], members: &[Node<EntityId>]) -> Vec<
                     format_cycle_error(&cycle),
                 ));
             }
-        }
     }
 
     errors
@@ -229,8 +228,8 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
         errors: &mut Vec<CompileError>,
     ) {
         // Reserve "debug" namespace for system-generated fields
-        if let Some(first) = path.segments.first() {
-            if first == "debug" {
+        if let Some(first) = path.segments.first()
+            && first == "debug" {
                 errors.push(CompileError::new(
                     ErrorKind::PathCollision,
                     span,
@@ -238,7 +237,6 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
                 ));
                 return;
             }
-        }
 
         // Check for same-kind collision
         let key = (kind, path.clone());

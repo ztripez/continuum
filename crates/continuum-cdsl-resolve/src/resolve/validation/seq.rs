@@ -16,8 +16,8 @@ pub fn validate_seq_escape<I: continuum_cdsl_ast::Index>(
     let mut errors = Vec::new();
 
     for node in nodes {
-        if let Some(ty) = &node.output {
-            if ty.is_seq() {
+        if let Some(ty) = &node.output
+            && ty.is_seq() {
                 errors.push(CompileError::new(
                     ErrorKind::TypeMismatch,
                     node.span,
@@ -27,7 +27,6 @@ pub fn validate_seq_escape<I: continuum_cdsl_ast::Index>(
                     ),
                 ));
             }
-        }
     }
 
     errors

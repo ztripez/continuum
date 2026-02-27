@@ -1,7 +1,7 @@
-///! Common parsing helper functions to reduce duplication.
-///!
-///! This module contains reusable parsing patterns that appear multiple times
-///! throughout the parser codebase.
+//! Common parsing helper functions to reduce duplication.
+//!
+//! This module contains reusable parsing patterns that appear multiple times
+//! throughout the parser codebase.
 use crate::parser::{error::ParseError, expr, stream::TokenStream, token_utils, types};
 use continuum_cdsl_ast::{Attribute, Expr, ObserveBlock, TypeExpr, WarmupBlock, WhenBlock};
 use continuum_cdsl_lexer::Token;

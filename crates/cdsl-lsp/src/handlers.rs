@@ -549,15 +549,16 @@ impl LanguageServer for Backend {
                         None => continue,
                     };
 
-                    // Read the file to convert spans
-                    let doc = match std::fs::read_to_string(node_file) {
-                        Ok(content) => content,
-                        Err(_) => continue,
-                    };
-
                     let uri = match Url::from_file_path(node_file) {
                         Ok(u) => u,
                         Err(_) => continue,
+                    };
+
+                    // Use cached document content instead of blocking file IO.
+                    // Documents are populated during workspace scan and open events.
+                    let doc = match self.documents.get(&uri) {
+                        Some(cached) => cached.clone(),
+                        None => continue,
                     };
 
                     let (start_line, start_char) =

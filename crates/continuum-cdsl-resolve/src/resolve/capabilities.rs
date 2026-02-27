@@ -230,7 +230,7 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!("prev cannot be accessed in this context (requires Capability::Prev)"),
+                    "prev cannot be accessed in this context (requires Capability::Prev)".to_string(),
                 ));
             }
         }
@@ -240,9 +240,7 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!(
-                        "current cannot be accessed in this context (requires Capability::Current)"
-                    ),
+                    "current cannot be accessed in this context (requires Capability::Current)".to_string(),
                 ));
             }
         }
@@ -252,9 +250,7 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!(
-                        "inputs cannot be accessed in this context (requires Capability::Inputs)"
-                    ),
+                    "inputs cannot be accessed in this context (requires Capability::Inputs)".to_string(),
                 ));
             }
         }
@@ -264,26 +260,21 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!(
-                        "payload cannot be accessed in this context (requires Capability::Payload)"
-                    ),
+                    "payload cannot be accessed in this context (requires Capability::Payload)".to_string(),
                 ));
             }
         }
 
         ExprKind::Call { kernel, args } => {
             // Check if this is an emit call (requires Emit capability)
-            if kernel.namespace.is_empty() && kernel.name == "emit" {
-                if !ctx.has_capability(Capability::Emit) {
+            if kernel.namespace.is_empty() && kernel.name == "emit"
+                && !ctx.has_capability(Capability::Emit) {
                     errors.push(CompileError::new(
                         ErrorKind::MissingCapability,
                         expr.span,
-                        format!(
-                            "emit() cannot be called in this context (requires Capability::Emit)"
-                        ),
+                        "emit() cannot be called in this context (requires Capability::Emit)".to_string(),
                     ));
                 }
-            }
 
             // Recursively validate arguments
             for arg in args {
@@ -355,7 +346,7 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!("self cannot be accessed in this context (requires Capability::Index)"),
+                    "self cannot be accessed in this context (requires Capability::Index)".to_string(),
                 ));
             }
         }
@@ -365,9 +356,7 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!(
-                        "other cannot be accessed in this context (requires Capability::Index)"
-                    ),
+                    "other cannot be accessed in this context (requires Capability::Index)".to_string(),
                 ));
             }
         }
@@ -377,9 +366,7 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!(
-                        "signal access requires Capability::Signals (only available in signal-reading phases)"
-                    ),
+                    "signal access requires Capability::Signals (only available in signal-reading phases)".to_string(),
                 ));
             }
         }
@@ -389,9 +376,7 @@ fn scan_for_capability_violations(
                 errors.push(CompileError::new(
                     ErrorKind::MissingCapability,
                     expr.span,
-                    format!(
-                        "field access requires Capability::Fields (only available in observer contexts)"
-                    ),
+                    "field access requires Capability::Fields (only available in observer contexts)".to_string(),
                 ));
             }
         }

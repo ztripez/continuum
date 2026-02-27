@@ -20,15 +20,13 @@ fn field_access_with_context(
     ctx: &dyn ExecutionContext,
 ) -> Result<Value, ExecutionError> {
     // Check if this is an entity instance marker from LoadSelf
-    if let Value::Map(fields) = object {
-        if let Some((key, _val)) = fields.first() {
-            if key == "__entity_instance__" {
+    if let Value::Map(fields) = object
+        && let Some((key, _val)) = fields.first()
+            && key == "__entity_instance__" {
                 // This is a member signal access: self.<field>
                 // Use the new load_member_signal method to access the member
                 return ctx.load_member_signal(field);
             }
-        }
-    }
 
     // Normal field access (Vec3, Map, etc.)
     field_access(object, field)
@@ -236,7 +234,7 @@ pub(crate) fn handle_build_vector(
         [Value::Scalar(x), Value::Scalar(y), Value::Scalar(z), Value::Scalar(w)] => {
             Value::Vec4([*x, *y, *z, *w])
         }
-        [..] if count >= 2 && count <= 4 => {
+        [..] if (2..=4).contains(&count) => {
             return Err(ExecutionError::TypeMismatch {
                 expected: "Scalar vector components".to_string(),
                 found: format!("{values:?}"),
@@ -953,14 +951,13 @@ pub(crate) fn handle_assert(
         // Extract optional severity and message operands
         // Propagate errors instead of silently discarding them with .ok()
         let severity = instruction
-            .operands
-            .get(0)
-            .map(|op| operand_string(op))
+            .operands.first()
+            .map(operand_string)
             .transpose()?;
         let message = instruction
             .operands
             .get(1)
-            .map(|op| operand_string(op))
+            .map(operand_string)
             .transpose()?;
         return ctx.trigger_assertion_fault(severity.as_deref(), message.as_deref());
     }

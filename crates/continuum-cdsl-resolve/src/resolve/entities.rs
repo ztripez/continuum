@@ -110,8 +110,8 @@ pub(crate) fn flatten_entity_members(
 
                 // Entity stratum provides default: inherit if member doesn't have one
                 // This allows entity-level convenience while permitting member-level specificity
-                if !has_attribute(&flattened_member.attributes, "stratum") {
-                    if let Some(ref stratum_path) = entity_stratum {
+                if !has_attribute(&flattened_member.attributes, "stratum")
+                    && let Some(ref stratum_path) = entity_stratum {
                         // Add entity's stratum attribute to member
                         let stratum_attr = Attribute {
                             name: "stratum".to_string(),
@@ -123,7 +123,6 @@ pub(crate) fn flatten_entity_members(
                         };
                         flattened_member.attributes.push(stratum_attr);
                     }
-                }
 
                 // Add as member declaration
                 flattened.push(Declaration::Member(flattened_member));
@@ -428,8 +427,8 @@ mod tests {
         assert!(errors.is_empty());
 
         // Check that both members have no stratum attribute
-        for i in 1..3 {
-            if let Declaration::Member(member) = &flattened[i] {
+        for (i, item) in flattened.iter().enumerate().take(3).skip(1) {
+            if let Declaration::Member(member) = item {
                 assert!(!has_attribute(&member.attributes, "stratum"));
             } else {
                 panic!("Expected Declaration::Member at index {}", i);

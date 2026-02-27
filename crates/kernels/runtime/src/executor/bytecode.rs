@@ -148,6 +148,7 @@ impl BytecodePhaseExecutor {
     /// Most user DSL logic belongs in other phases (Collect, Resolve, Fracture, Measure).
     ///
     /// See docs/execution/phases.md § 1 for semantics and usage guidance.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "configure")]
     pub fn execute_configure(
         &mut self,
@@ -351,6 +352,7 @@ impl BytecodePhaseExecutor {
     }
 
     /// Execute the Collect phase
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "collect")]
     pub fn execute_collect(
         &mut self,
@@ -440,6 +442,7 @@ impl BytecodePhaseExecutor {
     }
 
     /// Execute the Resolve phase
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "resolve")]
     pub fn execute_resolve(
         &mut self,
@@ -672,6 +675,7 @@ impl BytecodePhaseExecutor {
     }
 
     /// Execute the Fracture phase
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "fracture")]
     pub fn execute_fracture(
         &mut self,
@@ -748,6 +752,7 @@ impl BytecodePhaseExecutor {
     }
 
     /// Execute the Measure phase
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "measure")]
     pub fn execute_measure(
         &mut self,
@@ -831,6 +836,7 @@ impl BytecodePhaseExecutor {
     }
 
     /// Execute the Chronicle phase
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, name = "chronicle")]
     pub fn execute_chronicles(
         &mut self,
@@ -923,4 +929,3 @@ impl BytecodePhaseExecutor {
         Ok(())
     }
 }
-

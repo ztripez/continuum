@@ -111,37 +111,53 @@ impl ContinuumDebugAdapter {
 
                 info!(world_path = ?world_path, "Launching simulation");
 
-                // Compile using new API
-                let compiled = match compile_with_sources(&world_path) {
-                    Ok(c) => c,
-                    Err((source_map, errors)) => {
-                        let diagnostics = continuum_cdsl::format_errors(&errors, &source_map);
-                        error!("Compilation failed:\n{}", diagnostics);
-                        return self.make_error_response(
-                            &request,
-                            format!("Compilation failed:\n{}", diagnostics),
-                        );
-                    }
-                };
+                // Offload compilation and file IO to blocking thread to avoid
+                // stalling the DAP event loop during CPU-heavy compilation.
+                let launch_result = tokio::task::spawn_blocking(move || {
+                    // Compile using new API
+                    let compiled = match compile_with_sources(&world_path) {
+                        Ok(c) => c,
+                        Err((source_map, errors)) => {
+                            let diagnostics = continuum_cdsl::format_errors(&errors, &source_map);
+                            return Err(format!("Compilation failed:\n{}", diagnostics));
+                        }
+                    };
 
-                // Collect all .cdsl source files recursively in the world directory
-                // These are needed for breakpoint line number resolution
-                let mut sources = HashMap::new();
-                for entry in WalkDir::new(&world_path)
-                    .follow_links(true)
-                    .into_iter()
-                    .filter_map(|e| e.ok())
-                {
-                    let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "cdsl") {
-                        if let Ok(content) = std::fs::read_to_string(path) {
-                            sources.insert(path.to_path_buf(), content);
+                    // Collect all .cdsl source files recursively in the world directory
+                    // These are needed for breakpoint line number resolution
+                    let mut sources = HashMap::new();
+                    for entry in WalkDir::new(&world_path)
+                        .follow_links(true)
+                        .into_iter()
+                        .filter_map(|e| e.ok())
+                    {
+                        let path = entry.path();
+                        if path.extension().is_some_and(|ext| ext == "cdsl") {
+                            if let Ok(content) = std::fs::read_to_string(path) {
+                                sources.insert(path.to_path_buf(), content);
+                            }
                         }
                     }
-                }
 
-                // Build runtime
-                let runtime = build_runtime(compiled.clone(), None);
+                    // Build runtime
+                    let runtime = build_runtime(compiled.clone(), None);
+
+                    Ok((compiled, sources, runtime))
+                })
+                .await;
+
+                let (compiled, sources, runtime) = match launch_result {
+                    Ok(Ok(tuple)) => tuple,
+                    Ok(Err(msg)) => {
+                        error!("{}", msg);
+                        return self.make_error_response(&request, msg);
+                    }
+                    Err(join_err) => {
+                        let msg = format!("Launch task panicked: {}", join_err);
+                        error!("{}", msg);
+                        return self.make_error_response(&request, msg);
+                    }
+                };
 
                 let mut session = self.session.lock().await;
                 *session = Some(DebugSession {

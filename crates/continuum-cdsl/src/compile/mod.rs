@@ -1,10 +1,10 @@
-use crate::pipeline;
-use crate::CompileError;
+use crate::resolve::pipeline;
 use crate::CompiledWorld;
 use crate::Token;
 use crate::{SourceMap, Span};
 use continuum_cdsl_parser::parse_declarations_with_spans;
 use continuum_cdsl_resolve::error::ErrorKind;
+use continuum_cdsl_resolve::CompileError;
 use indexmap::IndexMap;
 use logos::Logos;
 use std::path::{Path, PathBuf};
@@ -76,7 +76,7 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
     for entry in WalkDir::new(root) {
         match entry {
             Ok(e) => {
-                if e.path().extension().map_or(false, |ext| ext == "cdsl") {
+                if e.path().extension().is_some_and(|ext| ext == "cdsl") {
                     cdsl_files.push(e.path().to_path_buf());
                 }
             }

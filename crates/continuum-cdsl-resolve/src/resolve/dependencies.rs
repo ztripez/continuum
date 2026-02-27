@@ -77,14 +77,13 @@ impl ExpressionVisitor for DependencyVisitor {
             ExprKind::FieldAccess { object, field } => {
                 // BUG FIX (continuum-b8wv): Don't insert member paths when object is Prev.
                 // Temporal self-references should not create cross-signal dependencies.
-                if !matches!(object.expr, ExprKind::Prev) {
-                    if let Type::User(type_id) = &object.ty {
+                if !matches!(object.expr, ExprKind::Prev)
+                    && let Type::User(type_id) = &object.ty {
                         // Accessing a member on a user type (entity or struct)
                         // In CDSL, members are identified by Entity.Member
                         self.paths
                             .insert(Path::from(type_id.to_string().as_str()).append(field));
                     }
-                }
             }
             ExprKind::Index { entity, .. } => {
                 // Index access creates dependency on the entity

@@ -117,11 +117,10 @@ pub fn project_entity_types(
     // 2. Hierarchical projection for each entity
     for path in entity_paths {
         let entity_id = EntityId::new(path.to_string());
-        if let Some(members) = entity_members.get(&entity_id) {
-            if let Err(mut e) = project_hierarchical_entity(&path, members, type_table) {
+        if let Some(members) = entity_members.get(&entity_id)
+            && let Err(mut e) = project_hierarchical_entity(&path, members, type_table) {
                 errors.append(&mut e);
             }
-        }
     }
 
     if errors.is_empty() {
@@ -878,7 +877,7 @@ fn evaluate_const_expr(expr: &Expr, span: Span) -> Result<f64, CompileError> {
 mod type_inference_tests {
     use super::*;
     use continuum_cdsl_ast::foundation::Type;
-    use continuum_cdsl_ast::{Declaration, Expr, TypeExpr, UntypedKind};
+    use continuum_cdsl_ast::{Expr, UntypedKind};
 
     #[test]
     fn test_infer_bool_from_true_literal() {
@@ -903,7 +902,7 @@ mod type_inference_tests {
         let span = Span::new(0, 0, 0, 0);
         let expr = Expr::new(
             UntypedKind::Literal {
-                value: 3.14,
+                value: 1.23,
                 unit: None,
             },
             span,

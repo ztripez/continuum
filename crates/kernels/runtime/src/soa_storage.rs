@@ -426,14 +426,13 @@ impl AlignedBuffer {
         }
 
         // Zero-fill any new elements
-        if target_bytes > self.len_bytes {
-            if let Some(ptr) = self.ptr {
+        if target_bytes > self.len_bytes
+            && let Some(ptr) = self.ptr {
                 unsafe {
                     let start = ptr.as_ptr().add(self.len_bytes);
                     std::ptr::write_bytes(start, 0, target_bytes - self.len_bytes);
                 }
             }
-        }
 
         self.len_bytes = target_bytes;
     }
@@ -491,15 +490,14 @@ impl AlignedBuffer {
 
 impl Drop for AlignedBuffer {
     fn drop(&mut self) {
-        if let Some(ptr) = self.ptr {
-            if self.capacity_bytes > 0 {
+        if let Some(ptr) = self.ptr
+            && self.capacity_bytes > 0 {
                 let layout = Layout::from_size_align(self.capacity_bytes, SIMD_ALIGNMENT)
                     .expect("Invalid layout in drop");
                 unsafe {
                     alloc::dealloc(ptr.as_ptr(), layout);
                 }
             }
-        }
     }
 }
 
@@ -1119,6 +1117,7 @@ impl MemberSignalBuffer {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn set_vec4_value(
         &mut self,
         meta: &MemberSignalMeta,
@@ -1139,7 +1138,6 @@ impl MemberSignalBuffer {
     }
 
     /// Set current value from a Value enum.
-
     pub fn set_current(
         &mut self,
         signal: &str,

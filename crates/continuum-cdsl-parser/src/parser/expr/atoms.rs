@@ -145,8 +145,8 @@ fn parse_identifier(stream: &mut TokenStream) -> Result<Expr, ParseError> {
 
     let name = match stream.advance() {
         Some(Token::Ident(s)) => s.clone(),
-        Some(token) => super::super::token_utils::keyword_to_string(&token)
-            .ok_or_else(|| ParseError::unexpected_token(Some(&token), "identifier", span))?,
+        Some(token) => super::super::token_utils::keyword_to_string(token)
+            .ok_or_else(|| ParseError::unexpected_token(Some(token), "identifier", span))?,
         None => {
             return Err(ParseError::unexpected_token(None, "identifier", span));
         }
@@ -196,8 +196,8 @@ fn parse_entity_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> 
             match stream.advance() {
                 Some(Token::Ident(s)) => s.clone(),
                 Some(token) => {
-                    super::super::token_utils::keyword_to_string(&token).ok_or_else(|| {
-                        ParseError::unexpected_token(Some(&token), "in entity path", span)
+                    super::super::token_utils::keyword_to_string(token).ok_or_else(|| {
+                        ParseError::unexpected_token(Some(token), "in entity path", span)
                     })?
                 }
                 None => {

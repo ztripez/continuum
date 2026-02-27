@@ -863,7 +863,7 @@ impl KernelRegistry {
     ) -> UnitConstraint {
         use continuum_kernel_types::UnitConstraint as CtUnitConstraint;
         match constraint {
-            CtUnitConstraint::Exact(unit) => UnitConstraint::Exact(unit.clone()),
+            CtUnitConstraint::Exact(unit) => UnitConstraint::Exact(*unit),
             CtUnitConstraint::Dimensionless => UnitConstraint::Dimensionless,
             CtUnitConstraint::Angle => UnitConstraint::Angle,
             CtUnitConstraint::Any => UnitConstraint::Any,
@@ -905,7 +905,7 @@ impl KernelRegistry {
     fn convert_unit_derivation(deriv: &continuum_kernel_types::UnitDerivation) -> UnitDerivation {
         use continuum_kernel_types::UnitDerivation as CtUnitDerivation;
         match deriv {
-            CtUnitDerivation::Exact(unit) => UnitDerivation::Exact(unit.clone()),
+            CtUnitDerivation::Exact(unit) => UnitDerivation::Exact(*unit),
             CtUnitDerivation::Dimensionless => UnitDerivation::Dimensionless,
             CtUnitDerivation::SameAs(idx) => UnitDerivation::SameAs(*idx),
             CtUnitDerivation::Multiply(indices) => UnitDerivation::Multiply(indices.to_vec()),

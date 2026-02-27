@@ -144,8 +144,8 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
         match &expr.expr {
             // Kernel call - check if it requires uses
             ExprKind::Call { kernel, .. } => {
-                if let Some(signature) = self.registry.get(kernel) {
-                    if let Some(req) = &signature.requires_uses {
+                if let Some(signature) = self.registry.get(kernel)
+                    && let Some(req) = &signature.requires_uses {
                         self.required.push(RequiredUse {
                             key: format!("{}.{}", signature.id.namespace, req.key),
                             span: expr.span,
@@ -153,7 +153,6 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
                             hint: req.hint.clone(),
                         });
                     }
-                }
             }
 
             // Other leaf nodes and containers that don't require specific uses
@@ -238,7 +237,6 @@ fn collect_required_uses_untyped_stmt(
 }
 
 /// Walk untyped expression tree collecting required uses from kernel calls and dt usage
-
 ///
 /// Similar to `collect_required_uses` but works on untyped `Expr` from parser.
 /// Used for warmup, when, and observe blocks that haven't been compiled to TypedExpr yet.
@@ -266,8 +264,8 @@ fn collect_required_uses_untyped(
                 // (can't use KernelId::new since it requires &'static str)
                 for kernel_id in registry.ids() {
                     if kernel_id.namespace == namespace && kernel_id.name == name {
-                        if let Some(signature) = registry.get(kernel_id) {
-                            if let Some(req) = &signature.requires_uses {
+                        if let Some(signature) = registry.get(kernel_id)
+                            && let Some(req) = &signature.requires_uses {
                                 required.push(RequiredUse {
                                     key: format!("{}.{}", signature.id.namespace, req.key),
                                     span: expr.span,
@@ -275,7 +273,6 @@ fn collect_required_uses_untyped(
                                     hint: req.hint.clone(),
                                 });
                             }
-                        }
                         break;
                     }
                 }
@@ -289,8 +286,8 @@ fn collect_required_uses_untyped(
 
         // KernelCall - desugared operators (Binary/Unary → KernelCall)
         UntypedKind::KernelCall { kernel, args } => {
-            if let Some(signature) = registry.get(kernel) {
-                if let Some(req) = &signature.requires_uses {
+            if let Some(signature) = registry.get(kernel)
+                && let Some(req) = &signature.requires_uses {
                     required.push(RequiredUse {
                         key: format!("{}.{}", signature.id.namespace, req.key),
                         span: expr.span,
@@ -298,7 +295,6 @@ fn collect_required_uses_untyped(
                         hint: req.hint.clone(),
                     });
                 }
-            }
 
             // Recurse into arguments
             for arg in args {
@@ -670,7 +666,7 @@ mod tests {
         ));
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
@@ -725,7 +721,7 @@ mod tests {
         ));
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         assert!(errors.is_empty());
     }
@@ -757,7 +753,7 @@ mod tests {
 
         let registry = KernelRegistry::global();
         let mut required = Vec::new();
-        collect_required_uses(&call, &registry, &mut required);
+        collect_required_uses(&call, registry, &mut required);
 
         assert_eq!(required.len(), 1);
         assert_eq!(required[0].key, "dt.raw");
@@ -797,7 +793,7 @@ mod tests {
 
         let registry = KernelRegistry::global();
         let mut required = Vec::new();
-        collect_required_uses(&clamp_call, &registry, &mut required);
+        collect_required_uses(&clamp_call, registry, &mut required);
 
         // Should require maths.clamping
         assert_eq!(required.len(), 1);
@@ -824,7 +820,7 @@ mod tests {
 
         let registry = KernelRegistry::global();
         let mut required = Vec::new();
-        collect_required_uses(&saturate_call, &registry, &mut required);
+        collect_required_uses(&saturate_call, registry, &mut required);
 
         // Should require maths.clamping
         assert_eq!(required.len(), 1);
@@ -867,7 +863,7 @@ mod tests {
 
         let registry = KernelRegistry::global();
         let mut required = Vec::new();
-        collect_required_uses(&wrap_call, &registry, &mut required);
+        collect_required_uses(&wrap_call, registry, &mut required);
 
         // Should require maths.clamping
         assert_eq!(required.len(), 1);
@@ -931,7 +927,7 @@ mod tests {
         ));
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         // Should report BOTH violations
         assert_eq!(
@@ -986,7 +982,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
@@ -1021,7 +1017,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         assert!(errors.is_empty());
     }
@@ -1067,7 +1063,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
@@ -1106,7 +1102,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
@@ -1161,7 +1157,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
@@ -1205,7 +1201,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         // Should detect dt.raw required in nested Let value
         assert_eq!(errors.len(), 1);
@@ -1257,7 +1253,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         // Should detect dt.raw required in If condition
         assert_eq!(errors.len(), 1);
@@ -1314,7 +1310,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         // Should detect maths.clamping required in nested clamp call
         assert_eq!(errors.len(), 1);
@@ -1354,7 +1350,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         // Should detect dt.raw in KernelCall args
         assert_eq!(errors.len(), 1);
@@ -1387,7 +1383,7 @@ mod tests {
         });
 
         let registry = KernelRegistry::global();
-        let errors = validate_node_uses(&node, &registry);
+        let errors = validate_node_uses(&node, registry);
 
         // Should detect dt.raw in Unary operand
         assert_eq!(errors.len(), 1);
@@ -1431,7 +1427,7 @@ mod tests {
 
         let registry = KernelRegistry::global();
         let mut required = Vec::new();
-        collect_required_uses(&let_expr, &registry, &mut required);
+        collect_required_uses(&let_expr, registry, &mut required);
 
         // Should detect dt.raw in Let value
         assert_eq!(required.len(), 1);

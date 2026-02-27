@@ -91,27 +91,21 @@ fn trace_cycle_path(cycle_nodes: &[Path], adj: &IndexMap<Path, Vec<Path>>) -> Ve
     visited.insert(start.clone());
 
     let mut current = start;
-    loop {
-        // Find the next node in the cycle by looking at adjacency list
-        if let Some(neighbors) = adj.get(current) {
-            // Find a neighbor that's in the cycle
-            if let Some(next) = neighbors.iter().find(|n| cycle_set.contains(n)) {
-                if visited.contains(next) {
-                    // Found the cycle completion
-                    path.push(next.clone());
-                    break;
-                } else {
-                    // Continue tracing
-                    visited.insert(next.clone());
-                    path.push(next.clone());
-                    current = next;
-                }
-            } else {
-                // Dead end, shouldn't happen but defend against it
+    while let Some(neighbors) = adj.get(current) {
+        // Find a neighbor that's in the cycle
+        if let Some(next) = neighbors.iter().find(|n| cycle_set.contains(n)) {
+            if visited.contains(next) {
+                // Found the cycle completion
+                path.push(next.clone());
                 break;
+            } else {
+                // Continue tracing
+                visited.insert(next.clone());
+                path.push(next.clone());
+                current = next;
             }
         } else {
-            // No neighbors, shouldn't happen
+            // Dead end, shouldn't happen but defend against it
             break;
         }
     }
@@ -132,8 +126,8 @@ fn build_dag(
 
     // 1. Collect all nodes that execute in this phase and stratum
     for node in world.globals.values() {
-        if node.stratum.as_ref() == Some(stratum) {
-            if let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
+        if node.stratum.as_ref() == Some(stratum)
+            && let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
                 // Observer boundary enforcement: Fields may only execute in Measure phase
                 if node.role_id() == RoleId::Field && phase != Phase::Measure {
                     return Err(vec![CompileError::new(
@@ -149,12 +143,11 @@ fn build_dag(
                 nodes.push((node.path.clone(), exec));
                 node_spans.insert(node.path.clone(), exec.span);
             }
-        }
     }
 
     for node in world.members.values() {
-        if node.stratum.as_ref() == Some(stratum) {
-            if let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
+        if node.stratum.as_ref() == Some(stratum)
+            && let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
                 // Observer boundary enforcement: Fields may only execute in Measure phase
                 if node.role_id() == RoleId::Field && phase != Phase::Measure {
                     return Err(vec![CompileError::new(
@@ -170,7 +163,6 @@ fn build_dag(
                 nodes.push((node.path.clone(), exec));
                 node_spans.insert(node.path.clone(), exec.span);
             }
-        }
     }
 
     if nodes.is_empty() {

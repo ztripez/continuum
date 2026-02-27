@@ -588,7 +588,7 @@ impl Compiler {
         block: &mut BytecodeBlock,
         op: AggregateOp,
         source: &TypedExpr,
-        binding: &String,
+        binding: &str,
         body: &TypedExpr,
     ) -> Result<(), CompileError> {
         ensure_aggregate_supported(op)?;
@@ -597,7 +597,7 @@ impl Compiler {
         let binding_slot = self.alloc_slot();
         let mut aggregate_block = BytecodeBlock::new(true);
         self.push_scope();
-        self.bind_local(binding.clone(), binding_slot);
+        self.bind_local(binding.to_owned(), binding_slot);
         self.compile_expr(&mut aggregate_block, body)?;
         aggregate_block
             .instructions
@@ -621,8 +621,8 @@ impl Compiler {
         block: &mut BytecodeBlock,
         source: &TypedExpr,
         init: &TypedExpr,
-        acc: &String,
-        elem: &String,
+        acc: &str,
+        elem: &str,
         body: &TypedExpr,
     ) -> Result<(), CompileError> {
         self.compile_expr(block, source)?;
@@ -636,8 +636,8 @@ impl Compiler {
 
         let mut fold_block = BytecodeBlock::new(true);
         self.push_scope();
-        self.bind_local(acc.clone(), acc_slot);
-        self.bind_local(elem.clone(), elem_slot);
+        self.bind_local(acc.to_owned(), acc_slot);
+        self.bind_local(elem.to_owned(), elem_slot);
         self.compile_expr(&mut fold_block, body)?;
         fold_block
             .instructions

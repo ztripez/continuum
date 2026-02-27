@@ -412,7 +412,7 @@ fn test_span_points_to_actual_error() {
     // Should fail
     assert!(result.is_err(), "Should have parse error");
 
-    let errors = result.unwrap_err();
+    let errors = result.expect_err("test: should have parse error");
     assert!(!errors.is_empty(), "Should have at least one error");
 
     // Verify the span is reasonable (not just token indices like 0, 1, 2)

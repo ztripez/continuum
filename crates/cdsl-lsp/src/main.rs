@@ -27,6 +27,79 @@ use continuum_cdsl::compile_from_memory;
 
 use crate::helpers::offset_to_position;
 
+/// Find the world root directory for a given file (pure filesystem operation).
+///
+/// A world root is a directory containing either:
+/// - A `world.yaml` file, OR
+/// - A `.cdsl` file with a `world` declaration
+///
+/// Searches upward from the file's parent directory.
+fn find_world_root(file_path: &Path) -> Option<PathBuf> {
+    let mut current = file_path.parent()?;
+
+    loop {
+        // Check for world.yaml
+        if current.join("world.yaml").exists() {
+            return Some(current.to_path_buf());
+        }
+
+        // Check for any .cdsl file with world declaration
+        if let Ok(entries) = std::fs::read_dir(current) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "cdsl")
+                    && let Ok(content) = std::fs::read_to_string(&path) {
+                        // Simple check for "world" declaration
+                        if content.contains("world ") {
+                            return Some(current.to_path_buf());
+                        }
+                    }
+            }
+        }
+
+        // Move up to parent directory
+        current = current.parent()?;
+    }
+}
+
+/// Collect all `.cdsl` files in a world directory tree (pure filesystem operation).
+///
+/// Walks the directory recursively and reads each `.cdsl` file's content.
+fn collect_world_files(world_root: &Path) -> IndexMap<PathBuf, String> {
+    let mut sources = IndexMap::new();
+
+    for entry in WalkDir::new(world_root)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.path().extension().is_some_and(|e| e == "cdsl")
+            && let Ok(content) = std::fs::read_to_string(entry.path()) {
+                sources.insert(entry.path().to_path_buf(), content);
+            }
+    }
+
+    sources
+}
+
+/// Scan a directory recursively for `.cdsl` files and return their contents.
+///
+/// Returns `(uri, text)` pairs for each discovered file.
+fn scan_directory_sync(dir: &Path) -> Vec<(PathBuf, String)> {
+    let mut results = Vec::new();
+    for entry in WalkDir::new(dir)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.path().extension().is_some_and(|e| e == "cdsl")
+            && let Ok(text) = std::fs::read_to_string(entry.path()) {
+                results.push((entry.path().to_path_buf(), text));
+            }
+    }
+    results
+}
+
 /// Semantic token types for syntax highlighting.
 const SEMANTIC_TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::VARIABLE,  // 0: signal
@@ -61,66 +134,28 @@ struct Backend {
 impl Backend {
     /// Get the compiled world for a given file URI.
     ///
-    /// This finds the world root for the file and returns the cached compiled world.
-    fn get_world_for_uri(&self, uri: &Url) -> Option<dashmap::mapref::one::Ref<PathBuf, World>> {
+    /// Uses cached world roots to avoid filesystem I/O on every handler call.
+    /// Falls back to filesystem lookup if no cached world matches.
+    fn get_world_for_uri(&self, uri: &Url) -> Option<dashmap::mapref::one::Ref<'_, PathBuf, World>> {
         let path = uri.to_file_path().ok()?;
-        let world_root = self.find_world_root(&path)?;
+
+        // Fast path: check if the file's path is under any known world root
+        let cached_root = self.worlds.iter().find_map(|entry| {
+            if path.starts_with(entry.key()) {
+                Some(entry.key().clone())
+            } else {
+                None
+            }
+        });
+
+        if let Some(root) = cached_root {
+            return self.worlds.get(&root);
+        }
+
+        // Slow path: walk filesystem to find world root (blocking, but only
+        // happens once per unknown path before compilation caches the world)
+        let world_root = find_world_root(&path)?;
         self.worlds.get(&world_root)
-    }
-
-    /// Find the world root directory for a given file.
-    ///
-    /// A world root is a directory containing either:
-    /// - A `world.yaml` file, OR
-    /// - A `.cdsl` file with a `world` declaration
-    ///
-    /// We search upwards from the file's directory until we find one.
-    fn find_world_root(&self, file_path: &Path) -> Option<PathBuf> {
-        let mut current = file_path.parent()?;
-
-        loop {
-            // Check for world.yaml
-            if current.join("world.yaml").exists() {
-                return Some(current.to_path_buf());
-            }
-
-            // Check for any .cdsl file with world declaration
-            if let Ok(entries) = std::fs::read_dir(current) {
-                for entry in entries.filter_map(|e| e.ok()) {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|e| e == "cdsl") {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            // Simple check for "world" declaration
-                            if content.contains("world ") {
-                                return Some(current.to_path_buf());
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Move up to parent directory
-            current = current.parent()?;
-        }
-    }
-
-    /// Collect all .cdsl files in a world directory tree.
-    fn collect_world_files(&self, world_root: &Path) -> IndexMap<PathBuf, String> {
-        let mut sources = IndexMap::new();
-
-        for entry in WalkDir::new(world_root)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.path().extension().is_some_and(|e| e == "cdsl") {
-                if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                    sources.insert(entry.path().to_path_buf(), content);
-                }
-            }
-        }
-
-        sources
     }
 
     /// Parse a document and publish diagnostics for entire world.
@@ -128,45 +163,64 @@ impl Backend {
     /// When any file in a world changes, we recompile the ENTIRE world
     /// (all .cdsl files in the world root directory tree) and distribute
     /// diagnostics back to each file.
+    ///
+    /// Filesystem I/O and compilation are offloaded to a blocking thread
+    /// to avoid stalling the tokio event loop.
     async fn parse_and_publish_diagnostics(&self, uri: Url, _text: &str) {
         let path = match uri.to_file_path() {
             Ok(p) => p,
             Err(_) => return,
         };
 
-        // Find the world root for this file
-        let world_root = match self.find_world_root(&path) {
-            Some(root) => root,
-            None => {
-                // No world root found - treat as standalone file for now
+        // Offload filesystem discovery + compilation to blocking thread
+        let compile_task_result = tokio::task::spawn_blocking(move || {
+            // Find the world root for this file
+            let world_root = match find_world_root(&path) {
+                Some(root) => root,
+                None => return Err(format!(
+                    "No world root found for {}, treating as standalone file",
+                    path.display()
+                )),
+            };
+
+            // Collect all .cdsl files in the world
+            let sources = collect_world_files(&world_root);
+
+            if sources.is_empty() {
+                return Err(format!(
+                    "No .cdsl files found in world root {}",
+                    world_root.display()
+                ));
+            }
+
+            let file_count = sources.len();
+
+            // Compile the entire world (CPU-heavy)
+            let compile_result = compile_from_memory(sources);
+
+            Ok((world_root, compile_result, file_count))
+        })
+        .await;
+
+        // Handle spawn_blocking join error
+        let (world_root, compile_result, file_count) = match compile_task_result {
+            Ok(Ok(tuple)) => tuple,
+            Ok(Err(warning)) => {
+                self.client
+                    .log_message(MessageType::WARNING, warning)
+                    .await;
+                return;
+            }
+            Err(join_err) => {
                 self.client
                     .log_message(
-                        MessageType::WARNING,
-                        format!(
-                            "No world root found for {}, treating as standalone file",
-                            path.display()
-                        ),
+                        MessageType::ERROR,
+                        format!("Compilation task panicked: {}", join_err),
                     )
                     .await;
                 return;
             }
         };
-
-        // Collect all .cdsl files in the world
-        let sources = self.collect_world_files(&world_root);
-
-        if sources.is_empty() {
-            self.client
-                .log_message(
-                    MessageType::WARNING,
-                    format!(
-                        "No .cdsl files found in world root {}",
-                        world_root.display()
-                    ),
-                )
-                .await;
-            return;
-        }
 
         self.client
             .log_message(
@@ -174,13 +228,10 @@ impl Backend {
                 format!(
                     "Compiling world at {} with {} files",
                     world_root.display(),
-                    sources.len()
+                    file_count
                 ),
             )
             .await;
-
-        // Compile the entire world
-        let compile_result = compile_from_memory(sources);
 
         match compile_result {
             Ok(compiled_world) => {
@@ -189,8 +240,18 @@ impl Backend {
                     .insert(world_root.clone(), compiled_world.world);
 
                 // Clear diagnostics for all files in this world
-                for path in self.collect_world_files(&world_root).keys() {
-                    if let Ok(file_uri) = Url::from_file_path(path) {
+                // Collect file paths on blocking thread, then publish on async side
+                let world_root_clone = world_root.clone();
+                let file_paths = tokio::task::spawn_blocking(move || {
+                    collect_world_files(&world_root_clone)
+                        .into_keys()
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default();
+
+                for path in file_paths {
+                    if let Ok(file_uri) = Url::from_file_path(&path) {
                         self.client
                             .publish_diagnostics(file_uri, vec![], None)
                             .await;
@@ -199,42 +260,46 @@ impl Backend {
             }
             Err((source_map, errors)) => {
                 // Compilation failed - group diagnostics by file
-                let mut diagnostics_by_file: std::collections::HashMap<PathBuf, Vec<Diagnostic>> =
-                    std::collections::HashMap::new();
+                // Read file contents on blocking thread for span conversion
+                let diagnostics_by_file = tokio::task::spawn_blocking(move || {
+                    let mut diagnostics_by_file: std::collections::HashMap<PathBuf, Vec<Diagnostic>> =
+                        std::collections::HashMap::new();
 
-                for error in errors {
-                    // Get the source file for this error
-                    let file = source_map.file(&error.span);
-                    let file_path = file.path.clone();
+                    for error in errors {
+                        let file = source_map.file(&error.span);
+                        let file_path = file.path.clone();
 
-                    // Read the file content to convert byte offsets to line/col
-                    let file_content = match std::fs::read_to_string(&file_path) {
-                        Ok(content) => content,
-                        Err(_) => continue,
-                    };
+                        let file_content = match std::fs::read_to_string(&file_path) {
+                            Ok(content) => content,
+                            Err(_) => continue,
+                        };
 
-                    // Convert engine span (byte offsets) to LSP positions (line/col)
-                    let (start_line, start_char) =
-                        offset_to_position(&file_content, error.span.start as usize);
-                    let (end_line, end_char) =
-                        offset_to_position(&file_content, error.span.end as usize);
+                        let (start_line, start_char) =
+                            offset_to_position(&file_content, error.span.start as usize);
+                        let (end_line, end_char) =
+                            offset_to_position(&file_content, error.span.end as usize);
 
-                    let diagnostic = Diagnostic {
-                        range: Range {
-                            start: Position::new(start_line, start_char),
-                            end: Position::new(end_line, end_char),
-                        },
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        source: Some("cdsl".to_string()),
-                        message: error.message.clone(),
-                        ..Default::default()
-                    };
+                        let diagnostic = Diagnostic {
+                            range: Range {
+                                start: Position::new(start_line, start_char),
+                                end: Position::new(end_line, end_char),
+                            },
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            source: Some("cdsl".to_string()),
+                            message: error.message.clone(),
+                            ..Default::default()
+                        };
+
+                        diagnostics_by_file
+                            .entry(file_path)
+                            .or_default()
+                            .push(diagnostic);
+                    }
 
                     diagnostics_by_file
-                        .entry(file_path)
-                        .or_default()
-                        .push(diagnostic);
-                }
+                })
+                .await
+                .unwrap_or_default();
 
                 // Publish diagnostics for each file
                 for (file_path, diagnostics) in &diagnostics_by_file {
@@ -246,66 +311,53 @@ impl Backend {
                 }
 
                 // Clear diagnostics for files with no errors
-                for path in self.collect_world_files(&world_root).keys() {
-                    if !diagnostics_by_file.contains_key(path) {
-                        if let Ok(file_uri) = Url::from_file_path(path) {
+                let world_root_clone = world_root.clone();
+                let file_paths = tokio::task::spawn_blocking(move || {
+                    collect_world_files(&world_root_clone)
+                        .into_keys()
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default();
+
+                for path in file_paths {
+                    if !diagnostics_by_file.contains_key(&path)
+                        && let Ok(file_uri) = Url::from_file_path(&path) {
                             self.client
                                 .publish_diagnostics(file_uri, vec![], None)
                                 .await;
                         }
-                    }
                 }
             }
         }
     }
 
-    /// Scan workspace for all .cdsl files and index them.
+    /// Scan workspace for all `.cdsl` files and index them.
+    ///
+    /// Filesystem I/O is offloaded to a blocking thread.
     async fn scan_workspace(&self) {
         let roots = self.workspace_roots.read().await;
 
         for root in roots.iter() {
             if let Ok(path) = root.to_file_path() {
-                self.scan_directory(&path).await;
+                let dir = path.clone();
+                let files = tokio::task::spawn_blocking(move || scan_directory_sync(&dir))
+                    .await
+                    .unwrap_or_default();
+
+                for (file_path, text) in files {
+                    let uri = match Url::from_file_path(&file_path) {
+                        Ok(uri) => uri,
+                        Err(_) => continue,
+                    };
+
+                    if !self.documents.contains_key(&uri) {
+                        self.documents.insert(uri, text);
+                    }
+                }
             }
         }
     }
-
-    /// Scan a directory recursively for .cdsl files.
-    async fn scan_directory(&self, dir: &Path) {
-        for entry in WalkDir::new(dir)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.path().extension().is_some_and(|e| e == "cdsl") {
-                self.index_file(entry.path()).await;
-            }
-        }
-    }
-
-    /// Index a single .cdsl file (without publishing diagnostics).
-    async fn index_file(&self, path: &Path) {
-        let uri = match Url::from_file_path(path) {
-            Ok(uri) => uri,
-            Err(_) => return,
-        };
-
-        if self.documents.contains_key(&uri) {
-            return;
-        }
-
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(_) => return,
-        };
-
-        // Store the document text for later use
-        self.documents.insert(uri, text);
-
-        // Note: We don't compile individual files during indexing anymore.
-        // Compilation happens when files are opened/changed and compiles the entire world.
-    }
-
 }
 
 // =============================================================================

@@ -33,13 +33,28 @@ async fn run_loop(state: Arc<ServerState>, event_tx: broadcast::Sender<WorldEven
             ExecutionState::Running => {}
         }
         
-        // Execute tick
-        let result = {
-            let mut rt = state.runtime.lock().expect("runtime mutex poisoned");
+        // Execute tick on blocking thread to avoid stalling tokio event loop.
+        // The std::sync::Mutex is held only during execute_tick, but tick
+        // execution can take milliseconds — enough to starve IPC handlers.
+        let state_for_tick = state.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut rt = state_for_tick.runtime.lock().expect("runtime mutex poisoned");
             rt.execute_tick()
-        };
+        })
+        .await;
         
-        match result {
+        // Flatten: spawn_blocking Result<execute_tick Result, JoinError>
+        let tick_result = match result {
+            Ok(inner) => inner,
+            Err(join_err) => {
+                error!("Tick task panicked: {}", join_err);
+                Err(continuum_runtime::error::Error::ExecutionFailure {
+                    message: format!("tick task panicked: {}", join_err),
+                })
+            }
+        };
+
+        match tick_result {
             Ok(tick_ctx) => {
                 // Broadcast tick event
                 let _ = event_tx.send(WorldEvent {
@@ -202,7 +217,24 @@ where
             match msg {
                 WorldMessage::Request(req) => {
                     debug!("Received request: {} ({})", req.kind, req.id);
-                    let response = router.handle(req, &state);
+                    // Offload request handling to blocking thread because
+                    // handlers acquire std::sync::Mutex<Runtime> which may
+                    // block if a tick is executing.
+                    let router_clone = router.clone();
+                    let state_clone = state.clone();
+                    let response = tokio::task::spawn_blocking(move || {
+                        router_clone.handle(req, &state_clone)
+                    })
+                    .await
+                    .unwrap_or_else(|join_err| {
+                        error!("Request handler panicked: {}", join_err);
+                        WorldResponse {
+                            id: 0,
+                            ok: false,
+                            payload: None,
+                            error: Some(format!("handler panicked: {}", join_err)),
+                        }
+                    });
                     let _ = write_tx_for_requests.send(WorldMessage::Response(response)).await;
                 }
                 WorldMessage::Response(_) => {
@@ -266,9 +298,9 @@ where
     
     // Wait for any task to complete
     tokio::select! {
-        result = request_task => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+        result = request_task => result.map_err(std::io::Error::other)?,
         _ = event_forward_task => Ok(()),
-        result = write_task => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+        result = write_task => result.map_err(std::io::Error::other)?,
     }
 }
 

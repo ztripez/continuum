@@ -116,9 +116,9 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                     let span = stream.current_span();
                     match stream.advance() {
                         Some(Token::Ident(s)) => s.clone(),
-                        Some(token) => super::super::token_utils::keyword_to_string(&token)
+                        Some(token) => super::super::token_utils::keyword_to_string(token)
                             .ok_or_else(|| {
-                                ParseError::unexpected_token(Some(&token), "after '.'", span)
+                                ParseError::unexpected_token(Some(token), "after '.'", span)
                             })?,
                         None => {
                             return Err(ParseError::unexpected_token(None, "after '.'", span));
@@ -210,7 +210,7 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                 // Block expressions start with { <expr> or { let or { if
                 // Struct literals start with { ident :
 
-                if !expr.as_path().is_some() {
+                if expr.as_path().is_none() {
                     // Not a path, can't be struct literal
                     break;
                 }

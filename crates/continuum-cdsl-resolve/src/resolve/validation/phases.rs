@@ -108,8 +108,8 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                             }
 
                             // Validate severity level if present
-                            if let Some(sev) = severity {
-                                if !matches!(sev.as_str(), "warn" | "error" | "fatal") {
+                            if let Some(sev) = severity
+                                && !matches!(sev.as_str(), "warn" | "error" | "fatal") {
                                     errors.push(CompileError::new(
                                         ErrorKind::TypeMismatch,
                                         *span,
@@ -119,7 +119,6 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                                         ),
                                     ));
                                 }
-                            }
                         }
                         continuum_cdsl_ast::TypedStmt::EmitEvent { fields, .. } => {
                             // Validate all field expressions
@@ -257,7 +256,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_ok(),
@@ -291,7 +290,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_ok(),
@@ -325,7 +324,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_ok(),
@@ -366,7 +365,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_err(),
@@ -406,7 +405,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_err(),
@@ -443,7 +442,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_err(),
@@ -483,7 +482,7 @@ mod tests {
 
             let type_table = TypeTable::new();
             let registry = KernelRegistry::global();
-            let result = validate_node(&node, &type_table, &registry);
+            let result = validate_node(&node, &type_table, registry);
 
             assert!(result.is_ok(), "Severity '{}' should be valid", severity);
         }
@@ -515,7 +514,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(result.is_err(), "Invalid severity should be rejected");
         let errors = result.unwrap_err();
@@ -552,7 +551,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_ok(),
@@ -600,7 +599,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let registry = KernelRegistry::global();
-        let result = validate_node(&node, &type_table, &registry);
+        let result = validate_node(&node, &type_table, registry);
 
         assert!(
             result.is_err(),

@@ -273,6 +273,7 @@ where
 ///
 /// Results are always in the same order as input indices, regardless of
 /// thread scheduling. This is achieved using indexed parallel iteration.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_scalar_l1<F>(
     prev_values: &[f64],
     resolver: F,
@@ -308,6 +309,7 @@ where
 /// Resolve all instances of a Vec3 member signal using L1 strategy.
 ///
 /// Same as [`resolve_scalar_l1`] but for Vec3 values.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_vec3_l1<F>(
     prev_values: &[[f64; 3]],
     resolver: F,
@@ -345,6 +347,7 @@ where
 /// This function uses `Value` enum for flexibility at the cost of some overhead.
 /// Prefer the typed versions ([`resolve_scalar_l1`], [`resolve_vec3_l1`]) for
 /// hot paths.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_member_signal_l1<F>(
     prev_values: &[Value],
     resolver: F,

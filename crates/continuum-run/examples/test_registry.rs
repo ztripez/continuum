@@ -14,7 +14,7 @@ fn main() {
     }
     
     // Check specifically for dt.decay
-    if let Some(sig) = registry.get_by_name("dt", "decay") {
+    if let Some(_sig) = registry.get_by_name("dt", "decay") {
         println!("✅ Found dt.decay");
     } else {
         println!("❌ dt.decay NOT FOUND!");
