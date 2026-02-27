@@ -142,3 +142,6 @@ pub mod units;
 pub mod uses;
 pub mod utils;
 pub mod validation;
+
+#[cfg(test)]
+mod blocks_tests;
