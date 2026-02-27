@@ -306,15 +306,22 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
         }
     }
 
-    // Load nested config/const blocks from global nodes
+    // Load nested config/const blocks from global and member nodes
     use continuum_cdsl::ast::NestedBlock;
-    for (_path, node) in &compiled.world.globals {
-        for block in &node.nested_blocks {
+
+    /// Extract config/const values from a node's nested blocks into the accumulator maps.
+    fn load_nested_config_const(
+        node_path: &Path,
+        nested_blocks: &[NestedBlock],
+        config_values: &mut IndexMap<Path, Value>,
+        const_values: &mut IndexMap<Path, Value>,
+        config_types: &mut IndexMap<Path, continuum_cdsl::ast::TypeExpr>,
+    ) {
+        for block in nested_blocks {
             match block {
                 NestedBlock::Config(entries) => {
                     for entry in entries {
-                        // Construct qualified path: node.path + entry.path
-                        let qualified_path = node.path.append(entry.path.to_string());
+                        let qualified_path = node_path.append(entry.path.to_string());
                         config_types.insert(qualified_path.clone(), entry.type_expr.clone());
 
                         if let Some(default) = &entry.default {
@@ -331,7 +338,7 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
                 }
                 NestedBlock::Const(entries) => {
                     for entry in entries {
-                        let qualified_path = node.path.append(entry.path.to_string());
+                        let qualified_path = node_path.append(entry.path.to_string());
                         let value = evaluate_literal(&entry.value).unwrap_or_else(|| {
                             panic!(
                                 "Const '{}' has non-literal expression. \
@@ -346,43 +353,23 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
         }
     }
 
-    // Load nested config/const blocks from member nodes
+    for (_path, node) in &compiled.world.globals {
+        load_nested_config_const(
+            &node.path,
+            &node.nested_blocks,
+            &mut config_values,
+            &mut const_values,
+            &mut config_types,
+        );
+    }
     for (_path, node) in &compiled.world.members {
-        for block in &node.nested_blocks {
-            match block {
-                NestedBlock::Config(entries) => {
-                    for entry in entries {
-                        // Construct qualified path: node.path + entry.path
-                        let qualified_path = node.path.append(entry.path.to_string());
-                        config_types.insert(qualified_path.clone(), entry.type_expr.clone());
-
-                        if let Some(default) = &entry.default {
-                            let value = evaluate_literal(default).unwrap_or_else(|| {
-                                panic!(
-                                    "Config '{}' has non-literal default expression. \
-                                     Config defaults must be compile-time literals (Scalar or Vec3 with literal components).",
-                                    qualified_path
-                                )
-                            });
-                            config_values.insert(qualified_path, value);
-                        }
-                    }
-                }
-                NestedBlock::Const(entries) => {
-                    for entry in entries {
-                        let qualified_path = node.path.append(entry.path.to_string());
-                        let value = evaluate_literal(&entry.value).unwrap_or_else(|| {
-                            panic!(
-                                "Const '{}' has non-literal expression. \
-                                 Const values must be compile-time literals (Scalar or Vec3 with literal components).",
-                                qualified_path
-                            )
-                        });
-                        const_values.insert(qualified_path, value);
-                    }
-                }
-            }
-        }
+        load_nested_config_const(
+            &node.path,
+            &node.nested_blocks,
+            &mut config_values,
+            &mut const_values,
+            &mut config_types,
+        );
     }
 
     // Apply scenario config overrides (const values cannot be overridden)

@@ -728,8 +728,37 @@ impl<'a> ExecutionContext for VMContext<'a> {
             });
         }
 
+        /// Extract all values as f64 scalars, returning a type mismatch error if any fail.
+        fn reduce_scalars(
+            values: &[Value],
+            f: fn(&[f64]) -> f64,
+        ) -> std::result::Result<Value, ExecutionError> {
+            let v = values
+                .iter()
+                .map(Value::as_scalar)
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| ExecutionError::TypeMismatch {
+                    expected: "Scalar values".to_string(),
+                    found: format!("{values:?}"),
+                })?;
+            Ok(Value::Scalar(f(&v)))
+        }
+
+        /// Extract all values as bools, returning a type mismatch error if any fail.
+        fn collect_bools(values: &[Value]) -> std::result::Result<Vec<bool>, ExecutionError> {
+            values
+                .iter()
+                .map(Value::as_bool)
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| ExecutionError::TypeMismatch {
+                    expected: "Boolean values".to_string(),
+                    found: format!("{values:?}"),
+                })
+        }
+
         match op {
             AggregateOp::Sum => {
+                // Sum supports both Scalar and Vec3
                 if let Some(v) = values
                     .iter()
                     .map(Value::as_scalar)
@@ -749,114 +778,26 @@ impl<'a> ExecutionContext for VMContext<'a> {
                     })
                 }
             }
-            AggregateOp::Product => {
-                if let Some(v) = values
-                    .iter()
-                    .map(Value::as_scalar)
-                    .collect::<Option<Vec<_>>>()
-                {
-                    Ok(Value::Scalar(reductions::product(&v)))
-                } else {
-                    Err(ExecutionError::TypeMismatch {
-                        expected: "Scalar values".to_string(),
-                        found: format!("{values:?}"),
-                    })
-                }
-            }
-            AggregateOp::Max => {
-                if let Some(v) = values
-                    .iter()
-                    .map(Value::as_scalar)
-                    .collect::<Option<Vec<_>>>()
-                {
-                    Ok(Value::Scalar(reductions::max(&v)))
-                } else {
-                    Err(ExecutionError::TypeMismatch {
-                        expected: "Scalar values".to_string(),
-                        found: format!("{values:?}"),
-                    })
-                }
-            }
-            AggregateOp::Min => {
-                if let Some(v) = values
-                    .iter()
-                    .map(Value::as_scalar)
-                    .collect::<Option<Vec<_>>>()
-                {
-                    Ok(Value::Scalar(reductions::min(&v)))
-                } else {
-                    Err(ExecutionError::TypeMismatch {
-                        expected: "Scalar values".to_string(),
-                        found: format!("{values:?}"),
-                    })
-                }
-            }
-            AggregateOp::Mean => {
-                if let Some(v) = values
-                    .iter()
-                    .map(Value::as_scalar)
-                    .collect::<Option<Vec<_>>>()
-                {
-                    Ok(Value::Scalar(reductions::mean(&v)))
-                } else {
-                    Err(ExecutionError::TypeMismatch {
-                        expected: "Scalar values".to_string(),
-                        found: format!("{values:?}"),
-                    })
-                }
-            }
+            AggregateOp::Product => reduce_scalars(&values, reductions::product),
+            AggregateOp::Max => reduce_scalars(&values, reductions::max),
+            AggregateOp::Min => reduce_scalars(&values, reductions::min),
+            AggregateOp::Mean => reduce_scalars(&values, reductions::mean),
             AggregateOp::Count => {
-                let count = values
-                    .iter()
-                    .map(Value::as_bool)
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or_else(|| ExecutionError::TypeMismatch {
-                        expected: "Boolean values".to_string(),
-                        found: format!("{values:?}"),
-                    })?
-                    .iter()
-                    .filter(|&&value| value)
-                    .count();
+                let bools = collect_bools(&values)?;
+                let count = bools.iter().filter(|&&v| v).count();
                 Ok(Value::Scalar(count as f64))
             }
             AggregateOp::Any => {
-                let any = values
-                    .iter()
-                    .map(Value::as_bool)
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or_else(|| ExecutionError::TypeMismatch {
-                        expected: "Boolean values".to_string(),
-                        found: format!("{values:?}"),
-                    })?
-                    .iter()
-                    .any(|&value| value);
-                Ok(Value::Boolean(any))
+                let bools = collect_bools(&values)?;
+                Ok(Value::Boolean(bools.iter().any(|&v| v)))
             }
             AggregateOp::All => {
-                let all = values
-                    .iter()
-                    .map(Value::as_bool)
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or_else(|| ExecutionError::TypeMismatch {
-                        expected: "Boolean values".to_string(),
-                        found: format!("{values:?}"),
-                    })?
-                    .iter()
-                    .all(|&value| value);
-                Ok(Value::Boolean(all))
+                let bools = collect_bools(&values)?;
+                Ok(Value::Boolean(bools.iter().all(|&v| v)))
             }
             AggregateOp::None => {
-                let any = values
-                    .iter()
-                    .map(Value::as_bool)
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or_else(|| ExecutionError::TypeMismatch {
-                        expected: "Boolean values".to_string(),
-                        found: format!("{values:?}"),
-                    })?
-                    .iter()
-                    .any(|&value| value);
-                Ok(Value::Boolean(!any))
+                let bools = collect_bools(&values)?;
+                Ok(Value::Boolean(!bools.iter().any(|&v| v)))
             }
             AggregateOp::First => Ok(values[0].clone()),
             AggregateOp::Map => Err(ExecutionError::InvalidOperand {
