@@ -20,13 +20,11 @@ fn field_access_with_context(
     ctx: &dyn ExecutionContext,
 ) -> Result<Value, ExecutionError> {
     // Check if this is an entity instance marker from LoadSelf
-    if let Value::Map(fields) = object
-        && let Some((key, _val)) = fields.first()
-            && key == "__entity_instance__" {
-                // This is a member signal access: self.<field>
-                // Use the new load_member_signal method to access the member
-                return ctx.load_member_signal(field);
-            }
+    if matches!(object, Value::EntitySelf) {
+        // This is a member signal access: self.<field>
+        // Use the new load_member_signal method to access the member
+        return ctx.load_member_signal(field);
+    }
 
     // Normal field access (Vec3, Map, etc.)
     field_access(object, field)
@@ -951,7 +949,8 @@ pub(crate) fn handle_assert(
         // Extract optional severity and message operands
         // Propagate errors instead of silently discarding them with .ok()
         let severity = instruction
-            .operands.first()
+            .operands
+            .first()
             .map(operand_string)
             .transpose()?;
         let message = instruction

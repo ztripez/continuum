@@ -305,16 +305,6 @@ impl PatternHints {
     };
 }
 
-impl Arity {
-    /// Get as `Option<usize>` for compatibility
-    pub fn as_option(&self) -> Option<usize> {
-        match self {
-            Arity::Fixed(n) => Some(*n),
-            Arity::Variadic => None,
-        }
-    }
-}
-
 /// Requirement for explicit `: uses(...)` declaration in DSL.
 ///
 /// Functions marked with this requirement cannot be used unless the signal

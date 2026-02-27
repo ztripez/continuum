@@ -40,7 +40,8 @@ use crate::storage::SignalStorage;
 use crate::types::Dt;
 use crate::vectorized::{EntityIndex, MemberSignalId};
 
-use super::lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult, LoweringStrategy};
+use super::lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
+use super::lowering_strategy::LoweringStrategy;
 
 // ============================================================================
 // Member DAG

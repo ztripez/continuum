@@ -208,6 +208,7 @@ impl ValueType {
             Value::Map(_) => panic!("Map values are not supported in member signals"),
             Value::Seq(_) => panic!("Seq values are not supported in member signals"),
             Value::Tensor(_) => panic!("Tensor values are not yet supported in member signals"),
+            Value::EntitySelf => panic!("EntitySelf marker is not a storable value type"),
         }
     }
 

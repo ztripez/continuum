@@ -64,9 +64,6 @@ use super::declaration::{
 use super::expr::TypedExpr;
 use super::role::RoleData;
 
-// Re-export structural declarations from structural module
-pub use super::structural::{Entity, Stratum};
-
 /// Index trait - marker for node indexing types
 ///
 /// Implemented by:

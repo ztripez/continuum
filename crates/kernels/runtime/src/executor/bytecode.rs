@@ -258,17 +258,21 @@ impl BytecodePhaseExecutor {
 
                             let block_id = compiled.root;
 
-                            // Diagnostic: dump bytecode structure
-                            tracing::debug!(
+                            // Diagnostic: dump bytecode structure (trace-level to avoid hot-path overhead)
+                            tracing::trace!(
                                 "Executing Configure block for signal '{}': block_id={:?}, slot_count={}, instructions={}",
                                 signal,
                                 block_id,
                                 compiled.slot_count,
                                 compiled.program.block(block_id).map(|b| b.instructions.len()).unwrap_or(0),
                             );
-                            if let Some(block) = compiled.program.block(block_id) {
+                            if let Some(block) = compiled
+                                .program
+                                .block(block_id)
+                                .filter(|_| tracing::enabled!(tracing::Level::TRACE))
+                            {
                                 for (i, instr) in block.instructions.iter().enumerate() {
-                                    tracing::debug!("  [{}] {:?}", i, instr);
+                                    tracing::trace!("  [{}] {:?}", i, instr);
                                 }
                             }
 
@@ -560,17 +564,21 @@ impl BytecodePhaseExecutor {
 
                             let block_id = compiled.root;
 
-                            // Diagnostic: dump bytecode structure
-                            tracing::debug!(
+                            // Diagnostic: dump bytecode structure (trace-level to avoid hot-path overhead)
+                            tracing::trace!(
                                 "Executing Resolve block for signal '{}': block_id={:?}, slot_count={}, instructions={}",
                                 signal,
                                 block_id,
                                 compiled.slot_count,
                                 compiled.program.block(block_id).map(|b| b.instructions.len()).unwrap_or(0),
                             );
-                            if let Some(block) = compiled.program.block(block_id) {
+                            if let Some(block) = compiled
+                                .program
+                                .block(block_id)
+                                .filter(|_| tracing::enabled!(tracing::Level::TRACE))
+                            {
                                 for (i, instr) in block.instructions.iter().enumerate() {
-                                    tracing::debug!("  [{}] {:?}", i, instr);
+                                    tracing::trace!("  [{}] {:?}", i, instr);
                                 }
                             }
 

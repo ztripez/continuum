@@ -43,6 +43,13 @@ pub enum Value {
 
     /// Ordered sequence of values (intermediate only, wrapped in Arc).
     Seq(Arc<Vec<Value>>),
+
+    /// Marker for the current entity instance in member signal context.
+    ///
+    /// Produced by `LoadSelf` bytecode instruction during member signal execution.
+    /// When `FieldAccess` encounters this value, it routes to member signal lookup
+    /// instead of normal field access. Carries no data — it is purely a type tag.
+    EntitySelf,
 }
 
 impl Value {
@@ -297,6 +304,7 @@ impl fmt::Display for Value {
                 let items: Vec<_> = v.iter().map(|v| format!("{}", v)).collect();
                 write!(f, "[{}]", items.join(", "))
             }
+            Value::EntitySelf => write!(f, "<entity-self>"),
         }
     }
 }

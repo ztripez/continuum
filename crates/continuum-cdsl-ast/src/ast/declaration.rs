@@ -20,7 +20,8 @@
 //! - Types explicit everywhere (no Option<TypeExpr> for const/config)
 
 use crate::ast::block::Stmt;
-use crate::ast::node::{Entity, Node, Stratum};
+use crate::ast::node::Node;
+use crate::ast::structural::{Entity, Stratum};
 use crate::ast::untyped::{Expr, TypeExpr};
 pub use crate::foundation::{DeterminismPolicy, FaultPolicy, WorldPolicy};
 use crate::foundation::{EntityId, Path, Span};

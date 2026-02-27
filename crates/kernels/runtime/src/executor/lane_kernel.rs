@@ -45,13 +45,11 @@
 //! kernel.execute(&signals, &entities, &mut population, dt, sim_time)?;
 //! ```
 
+use super::lowering_strategy::LoweringStrategy;
 use crate::soa_storage::PopulationStorage;
 use crate::storage::{EntityStorage, SignalStorage};
 use crate::types::Dt;
 use crate::vectorized::MemberSignalId;
-
-// Re-export for backward compatibility
-pub use super::lowering_strategy::LoweringStrategy;
 
 // ============================================================================
 // Lane Kernel Trait

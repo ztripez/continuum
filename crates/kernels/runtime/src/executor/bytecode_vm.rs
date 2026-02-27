@@ -366,14 +366,9 @@ impl<'a> ExecutionContext for VMContext<'a> {
                 phase: self.phase,
             })?;
 
-        // LoadSelf returns a special marker value that signals to FieldAccess
-        // that member signal access should be used.
-        // We use a Map with a special "__entity_instance__" key set to 1.
-        // This is a sentinel value that FieldAccess will recognize.
-        Ok(Value::Map(std::sync::Arc::new(vec![(
-            "__entity_instance__".to_string(),
-            Value::Integer(1),
-        )])))
+        // LoadSelf returns the EntitySelf marker, which FieldAccess recognizes
+        // to route member signal access instead of normal field access.
+        Ok(Value::EntitySelf)
     }
 
     fn load_other(&self) -> std::result::Result<Value, ExecutionError> {
