@@ -38,6 +38,7 @@
 
 mod assertions;
 pub mod bytecode;
+mod checkpoint_ops;
 mod context;
 pub mod cost_model;
 pub mod kernel_registry;
@@ -47,9 +48,13 @@ pub mod lane_kernel;
 pub mod lowering_strategy;
 pub mod member_executor;
 mod phases;
+mod registration;
 mod run;
 mod runtime;
 mod warmup;
+
+#[cfg(test)]
+mod tests;
 
 // Re-export public types
 pub use crate::types::AssertionSeverity;
