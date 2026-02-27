@@ -65,6 +65,8 @@ mod capability;
 mod dag;
 mod declaration;
 mod expr;
+#[cfg(test)]
+mod expr_tests;
 mod kernel;
 mod node;
 mod pipeline;
