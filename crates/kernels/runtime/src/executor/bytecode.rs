@@ -23,6 +23,23 @@ use continuum_foundation::Path;
 use indexmap::IndexMap;
 use tracing::instrument;
 
+/// Borrowed view of the immutable configuration fields from [`BytecodePhaseExecutor`].
+///
+/// This exists to solve a borrow-checker limitation: phase methods need to pass
+/// immutable config references into [`VMContext`] while simultaneously borrowing
+/// `&mut self.executor`. By splitting the struct into `(VMConfig, &mut BytecodeExecutor)`
+/// via [`BytecodePhaseExecutor::parts`], Rust can see the borrows don't conflict.
+pub(crate) struct VMConfig<'a> {
+    /// World configuration values loaded from config {} blocks.
+    pub config_values: &'a IndexMap<Path, Value>,
+    /// Global simulation constants loaded from const {} blocks.
+    pub const_values: &'a IndexMap<Path, Value>,
+    /// Signal types for zero value initialization.
+    pub signal_types: &'a IndexMap<SignalId, Type>,
+    /// Spatial topologies for entity neighbor queries.
+    pub topologies: &'a crate::topology::TopologyStorage,
+}
+
 /// Executes individual simulation phases using the bytecode VM.
 pub struct BytecodePhaseExecutor {
     /// The underlying bytecode interpreter.
@@ -57,6 +74,26 @@ impl BytecodePhaseExecutor {
             signal_types: IndexMap::new(),
             topologies: crate::topology::TopologyStorage::new(),
         }
+    }
+
+    /// Split self into immutable config references and a mutable executor.
+    ///
+    /// This is the classic Rust "split borrow" pattern. Phase methods need to
+    /// pass `&self.config_values` (etc.) into `VMContext` while calling
+    /// `self.executor.execute(&mut ctx)`. A naive `self.make_context()` borrows
+    /// all of `self`, conflicting with `&mut self.executor`. Destructuring into
+    /// `(VMConfig, &mut BytecodeExecutor)` proves to the borrow checker that the
+    /// two borrows are disjoint.
+    fn parts(&mut self) -> (VMConfig<'_>, &mut BytecodeExecutor) {
+        (
+            VMConfig {
+                config_values: &self.config_values,
+                const_values: &self.const_values,
+                signal_types: &self.signal_types,
+                topologies: &self.topologies,
+            },
+            &mut self.executor,
+        )
     }
 
     /// Stores configuration values for access during execution.
@@ -168,6 +205,7 @@ impl BytecodePhaseExecutor {
             .get_era(era)
             .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
+        let (config, executor) = self.parts();
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Configure) {
             let stratum_state = strata_states
@@ -198,27 +236,25 @@ impl BytecodePhaseExecutor {
                             })?;
 
                             let mut placeholder_fracture_queue = FractureQueue::default();
-                            let mut ctx = VMContext {
-                                phase: Phase::Configure,
+                            let mut placeholder_event_buffer = EventBuffer::default();
+                            let mut ctx = VMContext::new(
+                                &config,
+                                Phase::Configure,
                                 era,
                                 dt,
                                 sim_time,
                                 signals,
                                 entities,
                                 member_signals,
-                                channels: input_channels,
-                                fracture_queue: &mut placeholder_fracture_queue,
-                                field_buffer: &mut placeholder_field_buffer,
-                                event_buffer: &mut EventBuffer::default(),
-                                target_signal: Some(signal.clone()),
-                                cached_inputs: None,
-                                config_values: &self.config_values,
-                                const_values: &self.const_values,
-                                topologies: &self.topologies,
-                                signal_types: &self.signal_types,
-                                payload: None,
-                                entity_context: None,
-                            };
+                                input_channels,
+                                &mut placeholder_fracture_queue,
+                                &mut placeholder_field_buffer,
+                                &mut placeholder_event_buffer,
+                                Some(signal.clone()),
+                                None,
+                                None,
+                                None,
+                            );
 
                             let block_id = compiled.root;
 
@@ -236,8 +272,7 @@ impl BytecodePhaseExecutor {
                                 }
                             }
 
-                            let value = self
-                                .executor
+                            let value = executor
                                 .execute(compiled, &mut ctx)
                                 .map_err(|e| Error::ExecutionFailure {
                                     message: format!("signal '{}': {}", signal, e),
@@ -287,30 +322,27 @@ impl BytecodePhaseExecutor {
                                 };
 
                                 let mut placeholder_fracture_queue = FractureQueue::default();
-                                let mut ctx = VMContext {
-                                    phase: Phase::Configure,
+                                let mut placeholder_event_buffer = EventBuffer::default();
+                                let mut ctx = VMContext::new(
+                                    &config,
+                                    Phase::Configure,
                                     era,
                                     dt,
                                     sim_time,
                                     signals,
                                     entities,
                                     member_signals,
-                                    channels: input_channels,
-                                    fracture_queue: &mut placeholder_fracture_queue,
-                                    field_buffer: &mut placeholder_field_buffer,
-                                    event_buffer: &mut EventBuffer::default(),
-                                    target_signal: None,
-                                    cached_inputs: None,
-                                    config_values: &self.config_values,
-                                    const_values: &self.const_values,
-                                    topologies: &self.topologies,
-                                    signal_types: &self.signal_types,
-                                    payload: None,
-                                    entity_context: Some(entity_ctx),
-                                };
+                                    input_channels,
+                                    &mut placeholder_fracture_queue,
+                                    &mut placeholder_field_buffer,
+                                    &mut placeholder_event_buffer,
+                                    None,
+                                    None,
+                                    None,
+                                    Some(entity_ctx),
+                                );
 
-                                let value = self
-                                    .executor
+                                let value = executor
                                     .execute(compiled, &mut ctx)
                                     .map_err(|e| Error::ExecutionFailure {
                                         message: format!(
@@ -372,6 +404,7 @@ impl BytecodePhaseExecutor {
             .get_era(era)
             .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
+        let (config, executor) = self.parts();
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Collect) {
             let stratum_state = strata_states
@@ -395,29 +428,27 @@ impl BytecodePhaseExecutor {
                             }
                         })?;
                         let mut placeholder_fracture_queue = FractureQueue::default();
-                        let mut ctx = VMContext {
-                            phase: Phase::Collect,
+                        let mut placeholder_event_buffer = EventBuffer::default();
+                        let mut ctx = VMContext::new(
+                            &config,
+                            Phase::Collect,
                             era,
                             dt,
                             sim_time,
                             signals,
                             entities,
                             member_signals,
-                            channels: input_channels,
-                            fracture_queue: &mut placeholder_fracture_queue,
-                            field_buffer: &mut placeholder_field_buffer,
-                            event_buffer: &mut EventBuffer::default(),
-                            target_signal: None,
-                            cached_inputs: None,
-                            config_values: &self.config_values,
-                            const_values: &self.const_values,
-                            topologies: &self.topologies,
-                            signal_types: &self.signal_types,
-                            payload: None,
-                            entity_context: None,
-                        };
+                            input_channels,
+                            &mut placeholder_fracture_queue,
+                            &mut placeholder_field_buffer,
+                            &mut placeholder_event_buffer,
+                            None,
+                            None,
+                            None,
+                            None,
+                        );
 
-                        match self.executor.execute(compiled, &mut ctx) {
+                        match executor.execute(compiled, &mut ctx) {
                             Ok(_) => {}
                             Err(ExecutionError::InvalidOperand { message })
                                 if message.contains("no impulse payload is available") =>
@@ -464,6 +495,7 @@ impl BytecodePhaseExecutor {
             .get_era(era)
             .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
+        let (config, executor) = self.parts();
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Resolve) {
             let stratum_state = strata_states
@@ -494,27 +526,25 @@ impl BytecodePhaseExecutor {
                             })?;
 
                             let mut placeholder_fracture_queue = FractureQueue::default();
-                            let mut ctx = VMContext {
-                                phase: Phase::Resolve,
+                            let mut placeholder_event_buffer = EventBuffer::default();
+                            let mut ctx = VMContext::new(
+                                &config,
+                                Phase::Resolve,
                                 era,
                                 dt,
                                 sim_time,
                                 signals,
                                 entities,
                                 member_signals,
-                                channels: input_channels,
-                                fracture_queue: &mut placeholder_fracture_queue,
-                                field_buffer: &mut placeholder_field_buffer,
-                                event_buffer: &mut EventBuffer::default(),
-                                target_signal: Some(signal.clone()),
-                                cached_inputs: None,
-                                config_values: &self.config_values,
-                                const_values: &self.const_values,
-                                topologies: &self.topologies,
-                                signal_types: &self.signal_types,
-                                payload: None,
-                                entity_context: None,
-                            };
+                                input_channels,
+                                &mut placeholder_fracture_queue,
+                                &mut placeholder_field_buffer,
+                                &mut placeholder_event_buffer,
+                                Some(signal.clone()),
+                                None,
+                                None,
+                                None,
+                            );
 
                             let block_id = compiled.root;
 
@@ -532,8 +562,7 @@ impl BytecodePhaseExecutor {
                                 }
                             }
 
-                            let value = self
-                                .executor
+                            let value = executor
                                 .execute(compiled, &mut ctx)
                                 .map_err(|e| Error::ExecutionFailure {
                                     message: format!("signal '{}': {}", signal, e),
@@ -586,31 +615,28 @@ impl BytecodePhaseExecutor {
                                 };
 
                                 let mut placeholder_fracture_queue = FractureQueue::default();
-                                let mut ctx = VMContext {
-                                    phase: Phase::Resolve,
+                                let mut placeholder_event_buffer = EventBuffer::default();
+                                let mut ctx = VMContext::new(
+                                    &config,
+                                    Phase::Resolve,
                                     era,
                                     dt,
                                     sim_time,
                                     signals,
                                     entities,
                                     member_signals,
-                                    channels: input_channels,
-                                    fracture_queue: &mut placeholder_fracture_queue,
-                                    field_buffer: &mut placeholder_field_buffer,
-                                    event_buffer: &mut EventBuffer::default(),
-                                    target_signal: None, // Member signals don't use target_signal
-                                    cached_inputs: None,
-                                    config_values: &self.config_values,
-                                    const_values: &self.const_values,
-                                    topologies: &self.topologies,
-                                    signal_types: &self.signal_types,
-                                    payload: None,
-                                    entity_context: Some(entity_ctx),
-                                };
+                                    input_channels,
+                                    &mut placeholder_fracture_queue,
+                                    &mut placeholder_field_buffer,
+                                    &mut placeholder_event_buffer,
+                                    None, // Member signals don't use target_signal
+                                    None,
+                                    None,
+                                    Some(entity_ctx),
+                                );
 
                                 // Execute bytecode with entity context
-                                let value = self
-                                    .executor
+                                let value = executor
                                     .execute(compiled, &mut ctx)
                                     .map_err(|e| Error::ExecutionFailure {
                                         message: format!(
@@ -695,6 +721,7 @@ impl BytecodePhaseExecutor {
             .get_era(era)
             .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
+        let (config, executor) = self.parts();
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Fracture) {
             let stratum_state = strata_states
@@ -718,28 +745,26 @@ impl BytecodePhaseExecutor {
                             }
                         })?;
                         let mut placeholder_input_channels = InputChannels::default();
-                        let mut ctx = VMContext {
-                            phase: Phase::Fracture,
+                        let mut placeholder_event_buffer = EventBuffer::default();
+                        let mut ctx = VMContext::new(
+                            &config,
+                            Phase::Fracture,
                             era,
                             dt,
                             sim_time,
                             signals,
                             entities,
                             member_signals,
-                            channels: &mut placeholder_input_channels,
+                            &mut placeholder_input_channels,
                             fracture_queue,
-                            field_buffer: &mut placeholder_field_buffer,
-                            event_buffer: &mut EventBuffer::default(),
-                            target_signal: None, // TODO: Fracture nodes currently lack single-signal target context
-                            cached_inputs: None,
-                            config_values: &self.config_values,
-                            const_values: &self.const_values,
-                            topologies: &self.topologies,
-                            signal_types: &self.signal_types,
-                            payload: None,
-                            entity_context: None,
-                        };
-                        self.executor.execute(compiled, &mut ctx).map_err(|e| {
+                            &mut placeholder_field_buffer,
+                            &mut placeholder_event_buffer,
+                            None, // Fracture nodes currently lack single-signal target context
+                            None,
+                            None,
+                            None,
+                        );
+                        executor.execute(compiled, &mut ctx).map_err(|e| {
                             Error::ExecutionFailure {
                                 message: e.to_string(),
                             }
@@ -772,6 +797,7 @@ impl BytecodePhaseExecutor {
             .get_era(era)
             .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
+        let (config, executor) = self.parts();
         for dag in era_dags.for_phase(Phase::Measure) {
             let stratum_state = strata_states
                 .get(&dag.stratum)
@@ -799,29 +825,27 @@ impl BytecodePhaseExecutor {
                             })?;
                             let mut inner_input_channels = InputChannels::default();
                             let mut placeholder_fracture_queue = FractureQueue::default();
-                            let mut ctx = VMContext {
-                                phase: Phase::Measure,
+                            let mut placeholder_event_buffer = EventBuffer::default();
+                            let mut ctx = VMContext::new(
+                                &config,
+                                Phase::Measure,
                                 era,
                                 dt,
                                 sim_time,
                                 signals,
                                 entities,
                                 member_signals,
-                                channels: &mut inner_input_channels,
-                                fracture_queue: &mut placeholder_fracture_queue,
+                                &mut inner_input_channels,
+                                &mut placeholder_fracture_queue,
                                 field_buffer,
-                                event_buffer: &mut EventBuffer::default(),
-                                target_signal: None,
-                                cached_inputs: None,
-                                config_values: &self.config_values,
-                                const_values: &self.const_values,
-                                topologies: &self.topologies,
-                                signal_types: &self.signal_types,
-                                payload: None,
-                                entity_context: None,
-                            };
+                                &mut placeholder_event_buffer,
+                                None,
+                                None,
+                                None,
+                                None,
+                            );
 
-                            self.executor.execute(compiled, &mut ctx).map_err(|e| {
+                            executor.execute(compiled, &mut ctx).map_err(|e| {
                                 Error::ExecutionFailure {
                                     message: e.to_string(),
                                 }
@@ -856,6 +880,7 @@ impl BytecodePhaseExecutor {
             .get_era(era)
             .ok_or_else(|| Error::UnknownEra { era: era.clone() })?;
 
+        let (config, executor) = self.parts();
         let mut placeholder_field_buffer = FieldBuffer::default();
         for dag in era_dags.for_phase(Phase::Measure) {
             let stratum_state = strata_states
@@ -882,29 +907,27 @@ impl BytecodePhaseExecutor {
                                 })?;
                             let mut input_channels = InputChannels::default();
                             let mut placeholder_fracture_queue = FractureQueue::default();
-                            let mut ctx = VMContext {
-                                phase: Phase::Measure,
+                            // Chronicles receive the real event_buffer (not placeholder)
+                            let mut ctx = VMContext::new(
+                                &config,
+                                Phase::Measure,
                                 era,
                                 dt,
                                 sim_time,
                                 signals,
                                 entities,
                                 member_signals,
-                                channels: &mut input_channels,
-                                fracture_queue: &mut placeholder_fracture_queue,
-                                field_buffer: &mut placeholder_field_buffer,
+                                &mut input_channels,
+                                &mut placeholder_fracture_queue,
+                                &mut placeholder_field_buffer,
                                 event_buffer,
-                                target_signal: None,
-                                cached_inputs: None,
-                                config_values: &self.config_values,
-                                const_values: &self.const_values,
-                                topologies: &self.topologies,
-                                signal_types: &self.signal_types,
-                                payload: None,
-                                entity_context: None,
-                            };
+                                None,
+                                None,
+                                None,
+                                None,
+                            );
 
-                            self.executor.execute(compiled, &mut ctx).map_err(|e| {
+                            executor.execute(compiled, &mut ctx).map_err(|e| {
                                 Error::ExecutionFailure {
                                     message: e.to_string(),
                                 }

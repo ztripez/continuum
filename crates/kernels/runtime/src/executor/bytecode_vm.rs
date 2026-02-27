@@ -8,6 +8,7 @@
 //! logic distinct from the per-opcode execution semantics.
 
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError};
+use crate::executor::bytecode::VMConfig;
 use crate::reductions;
 use crate::soa_storage::MemberSignalBuffer;
 use crate::storage::{
@@ -116,6 +117,56 @@ pub struct EntityContext<'a> {
     pub instance_index: usize,
     /// The member signal path being resolved (e.g., "hydrology.cell.temperature")
     pub target_member: &'a Path,
+}
+
+impl<'a> VMContext<'a> {
+    /// Construct a new VM execution context.
+    ///
+    /// The `config` parameter carries the four immutable executor-level references
+    /// (`config_values`, `const_values`, `topologies`, `signal_types`) that are
+    /// identical across every VMContext in a phase method. Callers supply only the
+    /// per-node / per-phase varying fields directly.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        config: &'a VMConfig<'a>,
+        phase: Phase,
+        era: &'a EraId,
+        dt: Dt,
+        sim_time: f64,
+        signals: &'a SignalStorage,
+        entities: &'a EntityStorage,
+        member_signals: &'a MemberSignalBuffer,
+        channels: &'a mut InputChannels,
+        fracture_queue: &'a mut FractureQueue,
+        field_buffer: &'a mut FieldBuffer,
+        event_buffer: &'a mut EventBuffer,
+        target_signal: Option<SignalId>,
+        cached_inputs: Option<Value>,
+        payload: Option<&'a Value>,
+        entity_context: Option<EntityContext<'a>>,
+    ) -> Self {
+        Self {
+            phase,
+            era,
+            dt,
+            sim_time,
+            signals,
+            entities,
+            member_signals,
+            channels,
+            fracture_queue,
+            field_buffer,
+            event_buffer,
+            target_signal,
+            cached_inputs,
+            config_values: config.config_values,
+            const_values: config.const_values,
+            topologies: config.topologies,
+            signal_types: config.signal_types,
+            payload,
+            entity_context,
+        }
+    }
 }
 
 impl<'a> ExecutionContext for VMContext<'a> {

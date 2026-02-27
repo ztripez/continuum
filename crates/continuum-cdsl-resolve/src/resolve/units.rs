@@ -363,14 +363,14 @@ mod tests {
     }
 
     #[test]
-    fn test_dimension_overflow_clamps() {
-        use continuum_kernel_types::Rational;
+    #[should_panic(expected = "Rational addition overflow")]
+    fn test_dimension_overflow_panics() {
         let span = test_span();
         let left = Unit::new(UnitKind::Multiplicative, UnitDimensions::METER, 1.0);
         let right = power_unit(&left, 120, span).unwrap();
-        // Multiplying m^120 * m^120 would give m^240, but rational arithmetic clamps to i8::MAX
-        let result = multiply_units(&right, &right, span).unwrap();
-        assert_eq!(result.dims().length, Rational::integer(127)); // Clamped to i8::MAX
+        // Multiplying m^120 * m^120 would give m^240, exceeding i8 range.
+        // Rational arithmetic panics on overflow (fail-hard principle).
+        let _result = multiply_units(&right, &right, span);
     }
 
     #[test]
