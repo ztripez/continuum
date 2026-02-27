@@ -1,3 +1,9 @@
+//! Reconstructed lens sink implementation.
+//!
+//! Wraps an inner [`LensSink`] with a [`FieldLens`] that reconstructs
+//! continuous field values from raw samples before forwarding tick data
+//! to the downstream sink.
+
 use indexmap::IndexMap;
 
 use continuum_runtime::lens_sink::{LensData, LensSink, LensSinkError, Result};

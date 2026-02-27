@@ -1,3 +1,9 @@
+//! DAP protocol transport layer.
+//!
+//! Reads DAP messages from an async reader, dispatches them to
+//! [`ContinuumDebugAdapter`], and writes responses and events back with
+//! proper DAP framing (Content-Length headers and sequence numbers).
+
 use crate::adapter::ContinuumDebugAdapter;
 use dap::prelude::*;
 use serde::Serialize;
@@ -17,6 +23,7 @@ struct ProtocolMessage<T> {
     body: T,
 }
 
+/// DAP protocol server handling message framing and dispatch over stdio.
 pub struct DapServer {
     adapter: Arc<ContinuumDebugAdapter>,
     seq_number: Arc<Mutex<i64>>,
@@ -29,6 +36,7 @@ impl Default for DapServer {
 }
 
 impl DapServer {
+    /// Create a new DAP server instance.
     pub fn new() -> Self {
         let (tx, _rx) = mpsc::channel(100);
         let adapter = Arc::new(ContinuumDebugAdapter::new(tx));
@@ -39,6 +47,7 @@ impl DapServer {
         }
     }
 
+    /// Run the DAP server, reading requests from `reader` and writing responses to `writer`.
     pub async fn run<R, W>(&self, reader: R, writer: W) -> Result<(), Box<dyn std::error::Error>>
     where
         R: tokio::io::AsyncRead + Unpin,

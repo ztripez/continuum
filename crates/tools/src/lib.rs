@@ -2,6 +2,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 //! Continuum tooling support library.
+//!
+//! Provides the IPC server, request routing, and world execution intent used
+//! by the CLI runner and the inspector to drive and observe simulations.
 
 pub mod ipc_server;
 pub mod ipc_types;

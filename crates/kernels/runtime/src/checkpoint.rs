@@ -370,6 +370,7 @@ pub fn load_checkpoint(path: &Path) -> Result<Checkpoint, CheckpointError> {
 // Errors
 // ============================================================================
 
+/// Errors that can occur during checkpoint save or load operations.
 #[derive(Debug, thiserror::Error)]
 pub enum CheckpointError {
     #[error("Checkpoint queue is full (dropped to avoid blocking simulation)")]
@@ -408,7 +409,6 @@ pub enum CheckpointError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     fn create_test_checkpoint() -> Checkpoint {
         Checkpoint {

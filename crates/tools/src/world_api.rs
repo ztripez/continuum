@@ -1,3 +1,8 @@
+//! Transport-agnostic message types for the world execution API.
+//!
+//! Defines the request/response/event envelope types and a length-prefixed
+//! framing protocol used by the IPC server and inspector clients.
+
 use serde::{Deserialize, Serialize};
 
 /// A request to the world execution API.

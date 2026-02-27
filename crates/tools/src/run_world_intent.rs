@@ -1,3 +1,9 @@
+//! World execution intent: loading, compiling, and running a simulation.
+//!
+//! Defines [`WorldSource`] for inferring how to load a world (directory, binary
+//! bundle, or JSON) and [`RunWorldIntent`] for orchestrating compilation and
+//! single-run execution through the runtime.
+
 use std::path::PathBuf;
 
 use continuum_cdsl::ast::{BinaryBundle, CompiledWorld};
@@ -45,6 +51,7 @@ impl WorldSource {
         }
     }
 
+    /// Load and compile the world from the configured path.
     pub fn load(&self) -> Result<CompiledWorld, RunWorldError> {
         match self {
             WorldSource::Directory(path) => {

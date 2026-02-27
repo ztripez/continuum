@@ -75,44 +75,53 @@ enum MemberBufferClass {
 }
 
 impl ValueType {
+    /// Create a scalar value type.
     pub fn scalar() -> Self {
         Self::from_primitive_id(PrimitiveTypeId::new("Scalar"))
     }
 
+    /// Create a 2D vector value type.
     pub fn vec2() -> Self {
         Self::from_primitive_id(PrimitiveTypeId::new("Vec2"))
     }
 
+    /// Create a 3D vector value type.
     pub fn vec3() -> Self {
         Self::from_primitive_id(PrimitiveTypeId::new("Vec3"))
     }
 
+    /// Create a 4D vector value type.
     pub fn vec4() -> Self {
         Self::from_primitive_id(PrimitiveTypeId::new("Vec4"))
     }
 
+    /// Create a quaternion value type.
     pub fn quat() -> Self {
         Self::from_primitive_id(PrimitiveTypeId::new("Quat"))
     }
 
+    /// Create a boolean value type.
     pub fn boolean() -> Self {
         Self {
             kind: ValueTypeKind::Boolean,
         }
     }
 
+    /// Create an integer value type.
     pub fn integer() -> Self {
         Self {
             kind: ValueTypeKind::Integer,
         }
     }
 
+    /// Create a value type from a primitive type identifier.
     pub fn from_primitive_id(primitive_id: PrimitiveTypeId) -> Self {
         Self {
             kind: ValueTypeKind::Primitive(primitive_id),
         }
     }
 
+    /// Get the underlying primitive type identifier, if this is a primitive type.
     pub fn primitive_id(&self) -> Option<PrimitiveTypeId> {
         match self.kind {
             ValueTypeKind::Primitive(id) => Some(id),
@@ -120,30 +129,37 @@ impl ValueType {
         }
     }
 
+    /// Check if this is a scalar type.
     pub fn is_scalar(&self) -> bool {
         self.primitive_id().is_some_and(|id| id.name() == "Scalar")
     }
 
+    /// Check if this is a quaternion type.
     pub fn is_quat(&self) -> bool {
         self.primitive_id().is_some_and(|id| id.name() == "Quat")
     }
 
+    /// Check if this is a 3D vector type.
     pub fn is_vec3(&self) -> bool {
         self.primitive_id().is_some_and(|id| id.name() == "Vec3")
     }
 
+    /// Check if this is a 2D vector type.
     pub fn is_vec2(&self) -> bool {
         self.primitive_id().is_some_and(|id| id.name() == "Vec2")
     }
 
+    /// Check if this is a 4D vector type.
     pub fn is_vec4(&self) -> bool {
         self.primitive_id().is_some_and(|id| id.name() == "Vec4")
     }
 
+    /// Check if this is a boolean type.
     pub fn is_boolean(&self) -> bool {
         matches!(self.kind, ValueTypeKind::Boolean)
     }
 
+    /// Check if this is an integer type.
     pub fn is_integer(&self) -> bool {
         matches!(self.kind, ValueTypeKind::Integer)
     }

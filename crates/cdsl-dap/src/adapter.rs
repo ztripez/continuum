@@ -1,3 +1,9 @@
+//! Debug adapter that bridges the DAP protocol to the Continuum engine.
+//!
+//! Manages a debug session lifecycle (launch, breakpoints, stepping, variable
+//! inspection) by translating DAP requests into engine operations on
+//! [`Runtime`] and converting engine state back into DAP responses.
+
 use continuum_cdsl::ast::World;
 use continuum_cdsl::compile_with_sources;
 use continuum_runtime::{build_runtime, Runtime};
@@ -14,12 +20,14 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info};
 use walkdir::WalkDir;
 
+/// Debug adapter translating DAP protocol requests into Continuum DSL operations.
 pub struct ContinuumDebugAdapter {
     session: Arc<Mutex<Option<DebugSession>>>,
     event_tx: Arc<Mutex<Option<mpsc::Sender<Event>>>>,
     should_pause: Arc<AtomicBool>,
 }
 
+/// Active debugging session state including compiled world and runtime.
 pub struct DebugSession {
     pub world: World,
     pub runtime: Runtime,
@@ -29,6 +37,7 @@ pub struct DebugSession {
     pub current_halt_signal: Option<continuum_foundation::SignalId>,
 }
 
+/// Current status of a debug session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
     Starting,
@@ -56,6 +65,7 @@ fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
 }
 
 impl ContinuumDebugAdapter {
+    /// Create a new debug adapter with the given event channel.
     pub fn new(event_tx: mpsc::Sender<Event>) -> Self {
         Self {
             session: Arc::new(Mutex::new(None)),
@@ -64,6 +74,7 @@ impl ContinuumDebugAdapter {
         }
     }
 
+    /// Replace the event sender channel.
     pub async fn set_event_sender(&self, tx: mpsc::Sender<Event>) {
         let mut event_tx = self.event_tx.lock().await;
         *event_tx = Some(tx);
@@ -84,6 +95,7 @@ impl ContinuumDebugAdapter {
         }
     }
 
+    /// Handle a DAP protocol request and produce a response.
     pub async fn handle_request(&self, request: Request) -> Response {
         info!("Handling request: {:?}", request.command);
         let body = match request.command {

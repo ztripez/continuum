@@ -10,6 +10,7 @@ use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::{Span, Type};
 use continuum_cdsl_ast::{ExprKind, TypedExpr};
 
+/// Validate a typed expression for semantic correctness.
 pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<CompileError> {
     let mut errors = Vec::new();
 

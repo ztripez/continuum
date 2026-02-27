@@ -1,3 +1,8 @@
+//! Entry point for the CDSL Debug Adapter Protocol (DAP) server.
+//!
+//! Initializes file-based tracing and runs the DAP server over stdin/stdout,
+//! allowing editors and IDEs to debug CDSL world simulations.
+
 use cdsl_dap::server::DapServer;
 use tokio::io::{stdin, stdout};
 use tracing_subscriber::EnvFilter;

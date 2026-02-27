@@ -66,6 +66,7 @@ pub struct RunReport {
     pub run_dir: Option<PathBuf>,
 }
 
+/// Errors that can occur during simulation execution.
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
     #[error("runtime execution failed: {0}")]
@@ -74,6 +75,7 @@ pub enum RunError {
     Snapshot(String),
 }
 
+/// Execute a compiled world simulation to completion, writing output to the provided lens sink.
 pub fn run_simulation(
     runtime: &mut Runtime,
     mut options: RunOptions,

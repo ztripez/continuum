@@ -29,6 +29,7 @@ pub struct FieldStorage {
 }
 
 impl FieldStorage {
+    /// Create an empty field history.
     pub fn new() -> Self {
         Self {
             history: VecDeque::new(),
@@ -36,6 +37,7 @@ impl FieldStorage {
         }
     }
 
+    /// Add a field frame, evicting the oldest if capacity is exceeded.
     pub fn push(&mut self, frame: FieldFrame, max_frames: usize) {
         if self.history.len() == max_frames {
             self.history.pop_front();
@@ -44,6 +46,7 @@ impl FieldStorage {
         self.cache.clear();
     }
 
+    /// Get the most recent field frame.
     pub fn latest(&self) -> Option<&FieldFrame> {
         self.history.back()
     }
@@ -53,6 +56,7 @@ impl FieldStorage {
         self.history.iter().find(|frame| frame.tick == tick)
     }
 
+    /// Look up a cached reconstruction for the given tick.
     pub fn cache_get(&self, tick: u64) -> Option<Arc<dyn FieldReconstruction>> {
         self.cache
             .iter()
@@ -60,6 +64,7 @@ impl FieldStorage {
             .map(|(_, recon)| Arc::clone(recon))
     }
 
+    /// Insert a reconstruction into the cache for the given tick.
     pub fn cache_insert(
         &mut self,
         tick: u64,

@@ -138,6 +138,7 @@ pub struct FilteredSink<S: LensSink> {
 }
 
 impl<S: LensSink> FilteredSink<S> {
+    /// Create a new filtered sink wrapping the given sink with stride configuration.
     pub fn new(sink: S, config: LensSinkConfig) -> Self {
         Self {
             inner: sink,
@@ -183,10 +184,12 @@ pub struct MultiSink {
 }
 
 impl MultiSink {
+    /// Create a new multi-sink with no outputs.
     pub fn new() -> Self {
         Self { sinks: Vec::new() }
     }
 
+    /// Add a sink to the output list.
     pub fn add_sink(&mut self, sink: Box<dyn LensSink>) {
         self.sinks.push(sink);
     }

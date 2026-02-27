@@ -1,3 +1,9 @@
+//! CDSL compile pipeline orchestration.
+//!
+//! Discovers `.cdsl` source files under a world root directory, lexes, parses,
+//! and resolves them into a [`CompiledWorld`]. This module is the high-level
+//! public entry point for the entire CDSL compiler.
+
 use crate::resolve::pipeline;
 use crate::CompiledWorld;
 use crate::Token;

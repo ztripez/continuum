@@ -73,6 +73,7 @@ pub struct RefinementQueue {
 }
 
 impl RefinementQueue {
+    /// Create a new refinement queue with the given maximum capacity.
     pub fn new(max_queue: usize) -> Self {
         Self {
             queue: VecDeque::new(),

@@ -293,6 +293,7 @@ fn get_root_kind(expr: &Expr) -> &UntypedKind {
     }
 }
 
+/// Resolve and type-check a field access expression.
 pub fn type_field_access(
     ctx: &TypingContext,
     object: &Expr,
@@ -1059,6 +1060,7 @@ fn derive_expected_type_for_param(
     None
 }
 
+/// Resolve and type-check a function call as a kernel invocation.
 pub fn type_as_kernel_call(
     ctx: &TypingContext,
     kernel: &continuum_kernel_types::KernelId,

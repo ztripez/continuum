@@ -1,3 +1,9 @@
+//! Request handler dispatch for the IPC server.
+//!
+//! Defines [`RequestHandler`] trait, [`ServerState`] shared across handlers,
+//! and [`RequestRouter`] which maps IPC request kind strings to their
+//! corresponding handler implementations.
+
 use crate::world_api::{WorldRequest, WorldResponse};
 use continuum_cdsl::ast::CompiledWorld;
 use continuum_runtime::Runtime;
@@ -75,6 +81,7 @@ impl RequestRouter {
         self.handlers.insert(handler.kind(), handler);
     }
 
+    /// Dispatch a world request to the appropriate handler and return a response.
     pub fn handle(&self, req: WorldRequest, state: &ServerState) -> WorldResponse {
         match self.handlers.get(req.kind.as_str()) {
             Some(handler) => handler.handle(&req, state),

@@ -1,3 +1,9 @@
+//! Unix-socket IPC server for the Continuum inspector.
+//!
+//! Accepts connections over a Unix domain socket, dispatches JSON-framed
+//! requests to [`RequestRouter`], broadcasts world events to connected clients,
+//! and drives the simulation run loop on a background task.
+
 use crate::request_handlers::{RequestRouter, ServerState, ExecutionState};
 use crate::run_world_intent::RunWorldIntent;
 use crate::world_api::framing::{read_message, write_message};

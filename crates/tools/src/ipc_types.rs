@@ -1,5 +1,12 @@
+//! Data transfer types for IPC responses.
+//!
+//! Serializable structs that describe signals, fields, impulses, and assertions
+//! in the shape expected by inspector clients. These are boundary-only adapters
+//! over the canonical engine types.
+
 use serde::{Deserialize, Serialize};
 
+/// Signal metadata exposed through the IPC API.
 #[derive(Serialize, Deserialize)]
 pub struct SignalInfo {
     pub id: String,
@@ -12,6 +19,7 @@ pub struct SignalInfo {
     pub stratum: Option<String>,
 }
 
+/// Field metadata exposed through the IPC API.
 #[derive(Serialize, Deserialize)]
 pub struct FieldInfo {
     pub id: String,
@@ -24,6 +32,7 @@ pub struct FieldInfo {
     pub range: Option<[f64; 2]>,
 }
 
+/// Impulse metadata exposed through the IPC API.
 #[derive(Serialize, Deserialize)]
 pub struct ImpulseInfo {
     pub path: String,
@@ -31,6 +40,7 @@ pub struct ImpulseInfo {
     pub payload_type: Option<String>,
 }
 
+/// Assertion metadata exposed through the IPC API.
 #[derive(Serialize, Deserialize)]
 pub struct AssertionInfo {
     pub signal_id: String,
