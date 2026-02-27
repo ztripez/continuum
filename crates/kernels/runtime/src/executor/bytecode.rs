@@ -368,7 +368,19 @@ impl BytecodePhaseExecutor {
                                     })?;
                             }
                         }
-                        _ => {}
+                        NodeKind::OperatorCollect { .. }
+                        | NodeKind::OperatorMeasure { .. }
+                        | NodeKind::FieldEmit { .. }
+                        | NodeKind::Fracture { .. }
+                        | NodeKind::ChronicleObserve { .. }
+                        | NodeKind::PopulationAggregate { .. } => {
+                            return Err(Error::ExecutionFailure {
+                                message: format!(
+                                    "Unexpected node kind in Configure phase: {:?}",
+                                    node.kind
+                                ),
+                            });
+                        }
                     }
                 }
 
@@ -662,7 +674,19 @@ impl BytecodePhaseExecutor {
                                     })?;
                             }
                         }
-                        _ => {}
+                        NodeKind::OperatorCollect { .. }
+                        | NodeKind::OperatorMeasure { .. }
+                        | NodeKind::FieldEmit { .. }
+                        | NodeKind::Fracture { .. }
+                        | NodeKind::ChronicleObserve { .. }
+                        | NodeKind::PopulationAggregate { .. } => {
+                            return Err(Error::ExecutionFailure {
+                                message: format!(
+                                    "Unexpected node kind in Resolve phase: {:?}",
+                                    node.kind
+                                ),
+                            });
+                        }
                     }
                 }
 
@@ -851,7 +875,19 @@ impl BytecodePhaseExecutor {
                                 }
                             })?;
                         }
-                        _ => {}
+                        NodeKind::SignalResolve { .. }
+                        | NodeKind::MemberSignalResolve { .. }
+                        | NodeKind::OperatorCollect { .. }
+                        | NodeKind::Fracture { .. }
+                        | NodeKind::ChronicleObserve { .. }
+                        | NodeKind::PopulationAggregate { .. } => {
+                            return Err(Error::ExecutionFailure {
+                                message: format!(
+                                    "Unexpected node kind in Measure phase: {:?}",
+                                    node.kind
+                                ),
+                            });
+                        }
                     }
                 }
             }
@@ -932,7 +968,6 @@ impl BytecodePhaseExecutor {
                                     message: e.to_string(),
                                 }
                             })?;
-                            let _ = event_buffer;
                         }
                         NodeKind::OperatorMeasure { .. } | NodeKind::FieldEmit { .. } => {
                             continue;

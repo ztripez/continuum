@@ -57,7 +57,12 @@ pub fn verify_barrier_semantics(dag: &ExecutableDag) -> Result<(), BarrierViolat
                             }
                     }
                 }
-                _ => {}
+                // These node kinds don't participate in barrier semantics
+                NodeKind::OperatorCollect { .. }
+                | NodeKind::OperatorMeasure { .. }
+                | NodeKind::FieldEmit { .. }
+                | NodeKind::Fracture { .. }
+                | NodeKind::ChronicleObserve { .. } => {}
             }
         }
     }

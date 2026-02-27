@@ -294,7 +294,15 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
                     const_values.insert(entry.path.clone(), value);
                 }
             }
-            _ => {}
+            // Other declaration types are handled by their respective registration phases
+            Declaration::Node(_)
+            | Declaration::Member(_)
+            | Declaration::Entity(_)
+            | Declaration::Stratum(_)
+            | Declaration::Era(_)
+            | Declaration::Type(_)
+            | Declaration::World(_)
+            | Declaration::Function(_) => {}
         }
     }
 

@@ -566,7 +566,18 @@ impl PhaseExecutor {
                         } => {
                             aggregate_tasks.push((output_signal.clone(), *aggregate_idx));
                         }
-                        _ => {}
+                        NodeKind::OperatorCollect { .. }
+                        | NodeKind::OperatorMeasure { .. }
+                        | NodeKind::FieldEmit { .. }
+                        | NodeKind::Fracture { .. }
+                        | NodeKind::ChronicleObserve { .. } => {
+                            return Err(Error::ExecutionFailure {
+                                message: format!(
+                                    "Unexpected node kind in Resolve phase: {:?}",
+                                    node.kind
+                                ),
+                            });
+                        }
                     }
                 }
 
