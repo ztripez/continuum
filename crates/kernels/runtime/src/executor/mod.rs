@@ -38,6 +38,7 @@
 
 mod assertions;
 pub mod bytecode;
+mod bytecode_vm;
 mod checkpoint_ops;
 mod context;
 pub mod cost_model;
