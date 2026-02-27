@@ -452,7 +452,14 @@ pub fn accumulate_vectorized(
     let delta = args[1];
 
     // Helper to get value or first element of array (clunky but matches previous logic)
-    let get_val = |buf: &VRegBuffer, idx: usize| -> f64 { buf.get_scalar(idx).unwrap_or(0.0) };
+    let get_val = |buf: &VRegBuffer, idx: usize| -> f64 {
+        buf.get_scalar(idx).unwrap_or_else(|| {
+            panic!(
+                "dt.accumulate: missing scalar register value at index {}",
+                idx
+            )
+        })
+    };
 
     // If everything is uniform
     if prev.as_uniform().is_some()

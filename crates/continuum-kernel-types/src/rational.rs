@@ -175,11 +175,18 @@ impl Add for Rational {
         let num = self.num as i16 * other.denom as i16 + other.num as i16 * self.denom as i16;
         let denom = self.denom as u16 * other.denom as u16;
 
-        // Clamp to i8/u8 range (dimensional exponents should never overflow)
-        let num = num.clamp(i8::MIN as i16, i8::MAX as i16) as i8;
-        let denom = denom.min(u8::MAX as u16) as u8;
+        assert!(
+            (i8::MIN as i16..=i8::MAX as i16).contains(&num),
+            "Rational addition overflow: ({}/{}) + ({}/{}) produced numerator {} (exceeds i8 range)",
+            self.num, self.denom, other.num, other.denom, num
+        );
+        assert!(
+            denom <= u8::MAX as u16,
+            "Rational addition overflow: ({}/{}) + ({}/{}) produced denominator {} (exceeds u8 range)",
+            self.num, self.denom, other.num, other.denom, denom
+        );
 
-        Rational::new(num, denom)
+        Rational::new(num as i8, denom as u8)
     }
 }
 
@@ -201,10 +208,18 @@ impl Sub for Rational {
         let num = self.num as i16 * other.denom as i16 - other.num as i16 * self.denom as i16;
         let denom = self.denom as u16 * other.denom as u16;
 
-        let num = num.clamp(i8::MIN as i16, i8::MAX as i16) as i8;
-        let denom = denom.min(u8::MAX as u16) as u8;
+        assert!(
+            (i8::MIN as i16..=i8::MAX as i16).contains(&num),
+            "Rational subtraction overflow: ({}/{}) - ({}/{}) produced numerator {} (exceeds i8 range)",
+            self.num, self.denom, other.num, other.denom, num
+        );
+        assert!(
+            denom <= u8::MAX as u16,
+            "Rational subtraction overflow: ({}/{}) - ({}/{}) produced denominator {} (exceeds u8 range)",
+            self.num, self.denom, other.num, other.denom, denom
+        );
 
-        Rational::new(num, denom)
+        Rational::new(num as i8, denom as u8)
     }
 }
 
@@ -226,10 +241,18 @@ impl Mul for Rational {
         let num = self.num as i16 * other.num as i16;
         let denom = self.denom as u16 * other.denom as u16;
 
-        let num = num.clamp(i8::MIN as i16, i8::MAX as i16) as i8;
-        let denom = denom.min(u8::MAX as u16) as u8;
+        assert!(
+            (i8::MIN as i16..=i8::MAX as i16).contains(&num),
+            "Rational multiplication overflow: ({}/{}) * ({}/{}) produced numerator {} (exceeds i8 range)",
+            self.num, self.denom, other.num, other.denom, num
+        );
+        assert!(
+            denom <= u8::MAX as u16,
+            "Rational multiplication overflow: ({}/{}) * ({}/{}) produced denominator {} (exceeds u8 range)",
+            self.num, self.denom, other.num, other.denom, denom
+        );
 
-        Rational::new(num, denom)
+        Rational::new(num as i8, denom as u8)
     }
 }
 

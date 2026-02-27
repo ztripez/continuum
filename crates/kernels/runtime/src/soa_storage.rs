@@ -223,8 +223,12 @@ impl ValueType {
             ValueTypeKind::Integer => MemberBufferClass::Integer,
             ValueTypeKind::Primitive(id) => match primitive_type_by_name(id.name())
                 .map(|def| def.storage)
-                .unwrap_or(PrimitiveStorageClass::Scalar)
-            {
+                .unwrap_or_else(|| {
+                    panic!(
+                        "unknown primitive type '{}': cannot determine buffer layout",
+                        id.name()
+                    )
+                }) {
                 PrimitiveStorageClass::Scalar => MemberBufferClass::Scalar,
                 PrimitiveStorageClass::Vec2 => MemberBufferClass::Vec2,
                 PrimitiveStorageClass::Vec3 => MemberBufferClass::Vec3,

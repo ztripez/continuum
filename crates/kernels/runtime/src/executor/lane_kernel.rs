@@ -42,7 +42,7 @@
 //! );
 //!
 //! // Execute the kernel (handles all instances in parallel)
-//! kernel.execute(&signals, &mut population, dt)?;
+//! kernel.execute(&signals, &entities, &mut population, dt, sim_time)?;
 //! ```
 
 use crate::soa_storage::PopulationStorage;
@@ -100,8 +100,10 @@ pub trait LaneKernel: Send + Sync {
     /// # Arguments
     ///
     /// * `signals` - Read-only access to global signals
+    /// * `entities` - Read-only access to entity storage
     /// * `population` - Read-write access to population storage
     /// * `dt` - Time step for this tick
+    /// * `sim_time` - Accumulated simulation time in seconds
     ///
     /// # Returns
     ///
@@ -112,6 +114,7 @@ pub trait LaneKernel: Send + Sync {
         entities: &EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
+        sim_time: f64,
     ) -> Result<LaneKernelResult, LaneKernelError>;
 }
 

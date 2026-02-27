@@ -229,6 +229,7 @@ impl<T: L1KernelValue> LaneKernel for L1Kernel<T> {
         entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
+        sim_time: f64,
     ) -> Result<LaneKernelResult, LaneKernelError> {
         let start = std::time::Instant::now();
 
@@ -260,7 +261,7 @@ impl<T: L1KernelValue> LaneKernel for L1Kernel<T> {
                     entities,
                     members: member_signals,
                     dt,
-                    sim_time: 0.0, // TODO: Add sim_time to LaneKernel trait
+                    sim_time,
                 };
                 (self.resolver)(&ctx)
             },
@@ -372,7 +373,7 @@ mod tests {
         let signals = SignalStorage::default();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
-            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)
             .unwrap();
 
         assert_eq!(result.instances_processed, 10);
@@ -426,7 +427,7 @@ mod tests {
         let signals = SignalStorage::default();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
-            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)
             .unwrap();
 
         assert_eq!(result.instances_processed, 5);

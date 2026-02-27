@@ -654,6 +654,7 @@ impl LaneKernel for L3Kernel {
         _entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
+        _sim_time: f64,
     ) -> Result<LaneKernelResult, LaneKernelError> {
         let start = std::time::Instant::now();
 
@@ -995,7 +996,7 @@ mod tests {
         let signals = SignalStorage::default();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
-            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)
             .unwrap();
 
         assert_eq!(result.instances_processed, 5);
@@ -1074,7 +1075,7 @@ mod tests {
         let signals = SignalStorage::default();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
-            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)
             .unwrap();
 
         assert_eq!(result.instances_processed, 3);
@@ -1164,10 +1165,10 @@ mod tests {
         let entities = crate::storage::EntityStorage::default();
 
         kernel1
-            .execute(&signals, &entities, &mut pop1, Dt(1.0))
+            .execute(&signals, &entities, &mut pop1, Dt(1.0), 0.0)
             .unwrap();
         kernel2
-            .execute(&signals, &entities, &mut pop2, Dt(1.0))
+            .execute(&signals, &entities, &mut pop2, Dt(1.0), 0.0)
             .unwrap();
 
         // Results must be identical
