@@ -13,15 +13,17 @@ use tracing::{debug, error, info, instrument, trace};
 use crate::bytecode::CompiledBlock;
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
-use crate::soa_storage::MemberSignalBuffer;
 use crate::storage::{
-    EmittedEventRecord, EntityStorage, EventBuffer, FieldBuffer, FieldSample, FractureQueue,
+    EmittedEventRecord, EventBuffer, FieldBuffer, FieldSample, FractureQueue,
     InputChannels, SignalStorage,
 };
 use crate::types::{
     Dt, EraId, FieldId, ImpulseId, Phase, SignalId, StratumId, StratumState,
     TickContext, Value, WarmupResult, WorldPolicy,
 };
+use crate::unified_storage::UnifiedStorage;
+use crate::soa_storage::MemberSignalBuffer;
+use crate::storage::EntityStorage;
 
 use super::assertions::AssertionChecker;
 use super::context::ImpulseContext;
@@ -51,12 +53,8 @@ pub type AggregateResolverFn = Box<
 
 /// The Continuum runtime orchestrates simulation execution.
 pub struct Runtime {
-    /// Storage for global signals
-    pub(crate) signals: SignalStorage,
-    /// Storage for entity instances
-    pub(crate) entities: EntityStorage,
-    /// Buffers for member signals (SoA storage)
-    pub(crate) member_signals: MemberSignalBuffer,
+    /// Unified simulation state storage (signals, member signals, entities).
+    pub(crate) storage: UnifiedStorage,
     /// Channels for accumulating inputs before resolution
     pub(crate) input_channels: InputChannels,
     /// Buffer for emitted fields
@@ -119,9 +117,7 @@ impl Runtime {
         assertion_checker.set_policy(policy.faults);
 
         Self {
-            signals: SignalStorage::default(),
-            entities: EntityStorage::default(),
-            member_signals: MemberSignalBuffer::new(),
+            storage: UnifiedStorage::new(),
             input_channels: InputChannels::default(),
             field_buffer: FieldBuffer::default(),
             event_buffer: EventBuffer::default(),
@@ -153,7 +149,7 @@ impl Runtime {
     /// Called during Configure phase to copy current member signal values
     /// into the previous buffer so `prev` is available in Resolve.
     fn commit_member_initials(&mut self) {
-        self.member_signals.advance_tick();
+        self.storage.member_signals.advance_tick();
     }
 
     /// Get current simulation tick
@@ -173,7 +169,7 @@ impl Runtime {
 
     /// Get value of a signal by ID
     pub fn get_signal(&self, id: &SignalId) -> Option<&Value> {
-        self.signals.get_resolved(id)
+        self.storage.signals.get_resolved(id)
     }
 
     /// Check if warmup has been executed
@@ -211,24 +207,34 @@ impl Runtime {
         }
     }
 
-    /// Get access to the signals storage
+    /// Get access to the unified storage.
+    pub fn storage(&self) -> &UnifiedStorage {
+        &self.storage
+    }
+
+    /// Get mutable access to the unified storage.
+    pub fn storage_mut(&mut self) -> &mut UnifiedStorage {
+        &mut self.storage
+    }
+
+    /// Get access to the signals storage.
     pub fn signals(&self) -> &SignalStorage {
-        &self.signals
+        &self.storage.signals
     }
 
-    /// Get access to the entities storage
+    /// Get access to the entities storage.
     pub fn entities(&self) -> &EntityStorage {
-        &self.entities
+        &self.storage.entities
     }
 
-    /// Get access to the entities storage mutably
+    /// Get access to the entities storage mutably.
     pub fn entities_mut(&mut self) -> &mut EntityStorage {
-        &mut self.entities
+        &mut self.storage.entities
     }
 
-    /// Get access to the member signals buffer
+    /// Get access to the member signals buffer.
     pub fn member_signals(&self) -> &MemberSignalBuffer {
-        &self.member_signals
+        &self.storage.member_signals
     }
 
     /// Get access to the assertion checker
@@ -245,7 +251,7 @@ impl Runtime {
     #[instrument(skip_all, name = "warmup")]
     pub fn execute_warmup(&mut self) -> Result<WarmupResult> {
         self.warmup_executor
-            .execute(&mut self.signals, &self.entities, self.sim_time)
+            .execute(&mut self.storage.signals, &self.storage.entities, self.sim_time)
     }
 
     /// Get current phase
@@ -292,9 +298,9 @@ impl Runtime {
                 strata_states,
                 &self.dags,
                 &self.bytecode_blocks,
-                &mut self.signals,
-                &self.entities,
-                &mut self.member_signals,
+                &mut self.storage.signals,
+                &self.storage.entities,
+                &mut self.storage.member_signals,
                 &mut self.input_channels,
             )?;
             
@@ -308,7 +314,7 @@ impl Runtime {
                     for node in &level.nodes {
                         if let NodeKind::SignalResolve { signal, .. } = &node.kind {
                             // Signals must be initialized before first Resolve phase
-                            if !self.signals.has(signal) {
+                            if !self.storage.signals.has(signal) {
                                 panic!("Signal '{}' in DAG not initialized before Resolve phase. This indicates a compiler/loader bug.", signal);
                             }
                         }
@@ -336,8 +342,8 @@ impl Runtime {
                 self.sim_time,
                 strata_states,
                 &self.dags,
-                &self.signals,
-                &self.entities,
+                &self.storage.signals,
+                &self.storage.entities,
                 &mut self.input_channels,
                 &mut self.pending_impulses,
             )?;
@@ -350,9 +356,9 @@ impl Runtime {
                 strata_states,
                 &self.dags,
                 &self.bytecode_blocks,
-                &self.signals,
-                &self.entities,
-                &self.member_signals,
+                &self.storage.signals,
+                &self.storage.entities,
+                &self.storage.member_signals,
                 &mut self.input_channels,
             )?;
         }
@@ -361,8 +367,8 @@ impl Runtime {
         for (handler_idx, payload) in impulses {
             let handler = &self.phase_executor.impulse_handlers[handler_idx];
             let mut ctx = ImpulseContext {
-                signals: &self.signals,
-                entities: &self.entities,
+                signals: &self.storage.signals,
+                entities: &self.storage.entities,
                 channels: &mut self.input_channels,
                 dt,
                 sim_time: self.sim_time,
@@ -384,9 +390,9 @@ impl Runtime {
                 self.sim_time,
                 strata_states,
                 &self.dags,
-                &mut self.signals,
-                &self.entities,
-                &mut self.member_signals,
+                &mut self.storage.signals,
+                &self.storage.entities,
+                &mut self.storage.member_signals,
                 &mut self.input_channels,
                 &mut self.assertion_checker,
                 &self.breakpoints,
@@ -400,9 +406,9 @@ impl Runtime {
                 strata_states,
                 &self.dags,
                 &self.bytecode_blocks,
-                &mut self.signals,
-                &self.entities,
-                &mut self.member_signals,
+                &mut self.storage.signals,
+                &self.storage.entities,
+                &mut self.storage.member_signals,
                 &mut self.input_channels,
                 &mut self.assertion_checker,
                 &self.breakpoints,
@@ -421,8 +427,8 @@ impl Runtime {
                 dt,
                 self.sim_time,
                 &self.dags,
-                &self.signals,
-                &self.entities,
+                &self.storage.signals,
+                &self.storage.entities,
                 &mut self.fracture_queue,
             )?;
         } else {
@@ -434,9 +440,9 @@ impl Runtime {
                 strata_states,
                 &self.dags,
                 &self.bytecode_blocks,
-                &self.signals,
-                &mut self.entities,
-                &self.member_signals,
+                &self.storage.signals,
+                &mut self.storage.entities,
+                &self.storage.member_signals,
                 &mut self.fracture_queue,
             )?;
         }
@@ -455,8 +461,8 @@ impl Runtime {
                 self.sim_time,
                 strata_states,
                 &self.dags,
-                &self.signals,
-                &self.entities,
+                &self.storage.signals,
+                &self.storage.entities,
                 &mut self.field_buffer,
             )?;
 
@@ -467,8 +473,8 @@ impl Runtime {
                 self.sim_time,
                 strata_states,
                 &self.dags,
-                &self.signals,
-                &self.entities,
+                &self.storage.signals,
+                &self.storage.entities,
                 &mut self.event_buffer,
             )?;
         } else {
@@ -480,9 +486,9 @@ impl Runtime {
                 strata_states,
                 &self.dags,
                 &self.bytecode_blocks,
-                &self.signals,
-                &self.entities,
-                &self.member_signals,
+                &self.storage.signals,
+                &self.storage.entities,
+                &self.storage.member_signals,
                 &mut self.field_buffer,
             )?;
 
@@ -494,9 +500,9 @@ impl Runtime {
                 strata_states,
                 &self.dags,
                 &self.bytecode_blocks,
-                &self.signals,
-                &self.entities,
-                &self.member_signals,
+                &self.storage.signals,
+                &self.storage.entities,
+                &self.storage.member_signals,
                 &mut self.event_buffer,
             )?;
         }
@@ -515,9 +521,7 @@ impl Runtime {
     /// Execute PostTick phase: Finalize tick, advance time
     fn execute_post_tick_phase(&mut self, dt: Dt) -> Result<()> {
         trace!("phase: post tick");
-        self.signals.advance_tick();
-        self.entities.advance_tick();
-        self.member_signals.advance_tick();
+        self.storage.advance_tick();
         self.fracture_queue.drain_into(&mut self.input_channels);
         self.sim_time += dt.seconds();
         self.tick += 1;
@@ -633,7 +637,7 @@ impl Runtime {
         let era_config = self.eras.get(&self.current_era)
             .ok_or_else(|| Error::EraNotFound(self.current_era.clone()))?;
         if let Some(ref transition) = era_config.transition
-            && let Some(next_era) = transition(&self.signals, &self.entities, self.sim_time)
+            && let Some(next_era) = transition(&self.storage.signals, &self.storage.entities, self.sim_time)
         {
             if !self.eras.contains_key(&next_era) {
                 error!(era = %next_era, "transition to unknown era");

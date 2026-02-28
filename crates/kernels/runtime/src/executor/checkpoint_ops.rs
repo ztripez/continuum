@@ -54,7 +54,7 @@ impl Runtime {
             .ok_or_else(|| Error::Checkpoint("checkpointing not enabled".to_string()))?;
 
         // Extract member signal data
-        let member_signals = crate::checkpoint::MemberSignalData::from_buffer(&self.member_signals)
+        let member_signals = crate::checkpoint::MemberSignalData::from_buffer(&self.storage.member_signals)
             .map_err(|e| Error::Checkpoint(e.to_string()))?;
 
         // Build era configs for validation
@@ -95,8 +95,8 @@ impl Runtime {
                 world_git_hash: None,
             },
             state: crate::checkpoint::CheckpointState {
-                signals: self.signals.clone(),
-                entities: self.entities.clone(),
+                signals: self.storage.signals.clone(),
+                entities: self.storage.entities.clone(),
                 member_signals,
                 era_configs,
                 stratum_states,
@@ -131,7 +131,7 @@ impl Runtime {
             .ok_or_else(|| Error::Checkpoint("checkpointing not enabled".to_string()))?;
 
         // Extract member signal data
-        let member_signals = crate::checkpoint::MemberSignalData::from_buffer(&self.member_signals)
+        let member_signals = crate::checkpoint::MemberSignalData::from_buffer(&self.storage.member_signals)
             .map_err(|e| Error::Checkpoint(e.to_string()))?;
 
         // Build era configs for validation
@@ -172,8 +172,8 @@ impl Runtime {
                 world_git_hash: None,
             },
             state: crate::checkpoint::CheckpointState {
-                signals: self.signals.clone(),
-                entities: self.entities.clone(),
+                signals: self.storage.signals.clone(),
+                entities: self.storage.entities.clone(),
                 member_signals,
                 era_configs,
                 stratum_states,
@@ -212,14 +212,14 @@ impl Runtime {
                 }
 
         // Restore state
-        self.signals = checkpoint.state.signals;
-        self.entities = checkpoint.state.entities;
+        self.storage.signals = checkpoint.state.signals;
+        self.storage.entities = checkpoint.state.entities;
 
         // Restore member signals
         checkpoint
             .state
             .member_signals
-            .restore_into_buffer(&mut self.member_signals)
+            .restore_into_buffer(&mut self.storage.member_signals)
             .map_err(|e| Error::Checkpoint(e.to_string()))?;
 
         self.tick = checkpoint.header.tick;
@@ -260,16 +260,16 @@ impl Runtime {
         self.current_era = checkpoint.header.current_era.clone();
 
         // Restore signal storage
-        self.signals = checkpoint.state.signals;
+        self.storage.signals = checkpoint.state.signals;
 
         // Restore entity storage
-        self.entities = checkpoint.state.entities;
+        self.storage.entities = checkpoint.state.entities;
 
         // Restore member signals (SoA buffer)
         checkpoint
             .state
             .member_signals
-            .restore_into_buffer(&mut self.member_signals)
+            .restore_into_buffer(&mut self.storage.member_signals)
             .map_err(|e| Error::Checkpoint(e.to_string()))?;
 
         // Restore stratum states into the current era

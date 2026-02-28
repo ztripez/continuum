@@ -70,6 +70,7 @@ pub mod soa_storage;
 pub mod storage;
 pub mod topology;
 pub mod types;
+pub mod unified_storage;
 pub mod vectorized;
 
 #[cfg(test)]
@@ -99,6 +100,7 @@ pub use soa_storage::{
     SIMD_ALIGNMENT, TypedBuffer, ValueType,
 };
 pub use types::*;
+pub use unified_storage::UnifiedStorage;
 pub use vectorized::{
     Cardinality, EntityIndex, FieldPrimitive, FieldSampleIdentity, FractureIdentity,
     FracturePrimitive, GlobalSignal, IndexSpace, MemberSignal, MemberSignalId,

@@ -226,14 +226,14 @@ impl Runtime {
     /// Initialize a signal with a value
     pub fn init_signal(&mut self, id: SignalId, value: Value) {
         tracing::debug!(signal = %id, ?value, "signal initialized");
-        self.signals.init(id, value);
+        self.storage.signals.init(id, value);
     }
 
     /// Initialize an entity type with its instances
     pub fn init_entity(&mut self, id: EntityId, instances: EntityInstances) {
         let count = instances.count();
         tracing::debug!(entity = %id, count, "entity initialized");
-        self.entities.init_entity(id, instances);
+        self.storage.entities.init_entity(id, instances);
     }
 
     /// Register a member signal type
@@ -243,14 +243,15 @@ impl Runtime {
             ?value_type,
             "member signal registered"
         );
-        self.member_signals
+        self.storage
+            .member_signals
             .register_signal(signal_name.to_string(), value_type);
     }
 
     /// Initialize storage for all registered member signals
     pub fn init_member_instances(&mut self, instance_count: usize) {
         tracing::debug!(count = instance_count, "member instances initialized");
-        self.member_signals.init_instances(instance_count);
+        self.storage.member_signals.init_instances(instance_count);
     }
 
     /// Register the instance count for a specific entity.
@@ -260,7 +261,9 @@ impl Runtime {
             count,
             "entity instance count registered"
         );
-        self.member_signals.register_entity_count(entity_id, count);
+        self.storage
+            .member_signals
+            .register_entity_count(entity_id, count);
     }
 
     /// Register a scalar member resolver function
@@ -296,7 +299,8 @@ impl Runtime {
         instance_idx: usize,
         value: Value,
     ) -> std::result::Result<(), String> {
-        self.member_signals
+        self.storage
+            .member_signals
             .set_current(signal_name, instance_idx, value)
     }
 }
