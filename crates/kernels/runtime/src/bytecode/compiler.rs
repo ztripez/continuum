@@ -95,14 +95,14 @@ impl Compiler {
     ///
     /// # Errors
     ///
-    /// Returns a [`CompileError`] if:
+    /// Returns a [`BytecodeCompileError`] if:
     /// - The IR violates phase constraints (e.g., `Emit` in `Resolve` phase).
     /// - Required capabilities are missing from the IR definition.
     /// - The IR structure is inconsistent or unsupported.
     pub fn compile_execution(
         &mut self,
         execution: &Execution,
-    ) -> Result<CompiledBlock, CompileError> {
+    ) -> Result<CompiledBlock, BytecodeCompileError> {
         self.next_slot = 0;
         self.program = BytecodeProgram::new();
         self.scopes = vec![BTreeMap::new()];
@@ -135,7 +135,7 @@ impl Compiler {
         &mut self,
         block: &mut BytecodeBlock,
         body: &ExecutionBody,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         match body {
             ExecutionBody::Expr(expr) => {
                 self.compile_expr(block, expr)?;
@@ -155,7 +155,7 @@ impl Compiler {
         &mut self,
         block: &mut BytecodeBlock,
         stmt: &TypedStmt,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         use continuum_cdsl::ast::Stmt;
 
         match stmt {
@@ -306,7 +306,7 @@ impl Compiler {
         &mut self,
         block: &mut BytecodeBlock,
         expr: &TypedExpr,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         match &expr.expr {
             ExprKind::Literal { value, .. } => {
                 block.instructions.push(Instruction::new(
@@ -332,11 +332,11 @@ impl Compiler {
                 self.compile_vector(block, values)?;
             }
             ExprKind::Local(name) => {
-                let slot = self
-                    .lookup_local(name)
-                    .ok_or_else(|| CompileError::InvalidIR {
-                        message: format!("Unknown local binding: {name}"),
-                    })?;
+                let slot =
+                    self.lookup_local(name)
+                        .ok_or_else(|| BytecodeCompileError::InvalidIR {
+                            message: format!("Unknown local binding: {name}"),
+                        })?;
                 block.instructions.push(Instruction::new(
                     OpcodeKind::Load,
                     vec![Operand::Slot(slot)],
@@ -506,7 +506,7 @@ impl Compiler {
                 // where they appear in the target (entity.X[i]) not value expressions.
                 // The actual instance index is compiled separately in MemberSignalAssign.
                 // If we reach here, it's a misplaced index expression.
-                return Err(CompileError::InvalidIR {
+                return Err(BytecodeCompileError::InvalidIR {
                     message: "Index expression in value position (only allowed in emit member signal target)".to_string(),
                 });
             }
@@ -520,7 +520,7 @@ impl Compiler {
         &mut self,
         block: &mut BytecodeBlock,
         values: &[TypedExpr],
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         for value in values {
             self.compile_expr(block, value)?;
         }
@@ -537,7 +537,7 @@ impl Compiler {
         block: &mut BytecodeBlock,
         object: &TypedExpr,
         field: &str,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         self.compile_expr(block, object)?;
         block.instructions.push(Instruction::new(
             OpcodeKind::FieldAccess,
@@ -553,7 +553,7 @@ impl Compiler {
         name: String,
         value: &TypedExpr,
         body: Option<&TypedExpr>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         let slot = self.alloc_slot();
         self.compile_expr(block, value)?;
 
@@ -590,7 +590,7 @@ impl Compiler {
         source: &TypedExpr,
         binding: &str,
         body: &TypedExpr,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         ensure_aggregate_supported(op)?;
         self.compile_expr(block, source)?;
 
@@ -624,7 +624,7 @@ impl Compiler {
         acc: &str,
         elem: &str,
         body: &TypedExpr,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         self.compile_expr(block, source)?;
         let acc_slot = self.alloc_slot();
         let elem_slot = self.alloc_slot();
@@ -661,7 +661,7 @@ impl Compiler {
         block: &mut BytecodeBlock,
         kernel: continuum_kernel_types::KernelId,
         args: &[TypedExpr],
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         for arg in args {
             self.compile_expr(block, arg)?;
         }
@@ -677,7 +677,7 @@ impl Compiler {
         &mut self,
         block: &mut BytecodeBlock,
         fields: &[(String, TypedExpr)],
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         for (_, value) in fields {
             self.compile_expr(block, value)?;
         }
@@ -733,11 +733,11 @@ impl Compiler {
         &self,
         phase: Phase,
         program: &BytecodeProgram,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), BytecodeCompileError> {
         for block in program.blocks() {
             for instruction in &block.instructions {
                 if !instruction.kind.is_valid_in_phase(phase) {
-                    return Err(CompileError::PhaseViolation {
+                    return Err(BytecodeCompileError::PhaseViolation {
                         opcode: format!("{:?}", instruction.kind),
                         phase,
                     });
@@ -745,7 +745,7 @@ impl Compiler {
                 if instruction.kind.has_effect()
                     && instruction.kind.metadata().allowed_phases.is_none()
                 {
-                    return Err(CompileError::PhaseViolation {
+                    return Err(BytecodeCompileError::PhaseViolation {
                         opcode: format!("{:?}", instruction.kind),
                         phase,
                     });
@@ -763,9 +763,9 @@ impl Default for Compiler {
 }
 
 /// Validates that an aggregate operation is supported by the bytecode VM.
-fn ensure_aggregate_supported(op: AggregateOp) -> Result<(), CompileError> {
+fn ensure_aggregate_supported(op: AggregateOp) -> Result<(), BytecodeCompileError> {
     if matches!(op, AggregateOp::Map) {
-        return Err(CompileError::InvalidIR {
+        return Err(BytecodeCompileError::InvalidIR {
             message: "Aggregate Map is not a runtime reduction opcode".to_string(),
         });
     }
@@ -774,7 +774,7 @@ fn ensure_aggregate_supported(op: AggregateOp) -> Result<(), CompileError> {
 
 /// Compilation error types encountered during IR → bytecode translation.
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum CompileError {
+pub enum BytecodeCompileError {
     /// An opcode was used in a phase where it is not allowed (e.g., `Emit` in `Resolve`).
     #[error("Opcode {opcode} not allowed in phase {phase:?}")]
     PhaseViolation {

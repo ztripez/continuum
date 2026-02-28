@@ -12,7 +12,7 @@ use crate::soa_storage::ValueType;
 use crate::types::*;
 use crate::vectorized::MemberSignalId;
 use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypeExpr, TypedExpr};
-use continuum_cdsl::Type;
+use continuum_cdsl::foundation::Type;
 use continuum_foundation::Path;
 use indexmap::IndexMap;
 

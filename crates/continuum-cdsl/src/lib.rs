@@ -45,8 +45,12 @@
 #[allow(unused_imports)]
 use continuum_functions::tensor_ops as _;
 
-// Re-export AST and foundation types
-pub use continuum_cdsl_ast::{self as ast, *};
+// Re-export AST crate as `ast` submodule — use `continuum_cdsl::ast::Foo` for AST types.
+// No glob re-export: AST and resolve both define `error` modules which would collide.
+pub use continuum_cdsl_ast as ast;
+
+// Re-export foundation module directly for `continuum_cdsl::foundation::Type` etc.
+pub use continuum_cdsl_ast::foundation;
 
 // Re-export lexer
 pub use continuum_cdsl_lexer as lexer;

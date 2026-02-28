@@ -4,10 +4,9 @@
 //! and resolves them into a [`CompiledWorld`]. This module is the high-level
 //! public entry point for the entire CDSL compiler.
 
+use crate::ast::{CompiledWorld, SourceMap, Span};
 use crate::resolve::pipeline;
-use crate::CompiledWorld;
 use crate::Token;
-use crate::{SourceMap, Span};
 use continuum_cdsl_parser::parse_declarations_with_spans;
 use continuum_cdsl_resolve::error::ErrorKind;
 use continuum_cdsl_resolve::CompileError;
