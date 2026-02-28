@@ -23,11 +23,11 @@ use std::collections::HashSet;
 ///
 /// # Returns
 /// Vec of warnings for orphaned strata (does not fail compilation)
-pub fn validate_orphaned_strata<I: continuum_cdsl_ast::Index>(
+pub fn validate_orphaned_strata(
     strata: &IndexMap<continuum_cdsl_ast::foundation::Path, Stratum>,
     eras: &IndexMap<continuum_cdsl_ast::foundation::Path, Era>,
-    global_nodes: &[Node<()>],
-    member_nodes: &[Node<I>],
+    global_nodes: &[Node],
+    member_nodes: &[Node],
 ) -> Vec<CompileError> {
     let mut used_strata = HashSet::new();
 
@@ -94,7 +94,7 @@ mod tests {
 
         let eras = IndexMap::new();
 
-        let empty_members: &[Node<continuum_cdsl_ast::foundation::EntityId>] = &[];
+        let empty_members: &[Node] = &[];
         let warnings = validate_orphaned_strata(&strata, &eras, &[], empty_members);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0]
@@ -114,11 +114,11 @@ mod tests {
             Path::from_path_str("test.signal"),
             Span::zero(0),
             RoleData::Signal,
-            (),
+            None,
         );
         node.stratum = Some(StratumId::new("main"));
 
-        let empty_members: &[Node<continuum_cdsl_ast::foundation::EntityId>] = &[];
+        let empty_members: &[Node] = &[];
         let warnings = validate_orphaned_strata(&strata, &eras, &[node], empty_members);
         assert!(warnings.is_empty());
     }

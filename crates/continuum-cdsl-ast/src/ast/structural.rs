@@ -70,8 +70,8 @@ pub enum TopologyExpr {
 /// Examples: plate, planet, star, person, city
 ///
 /// An Entity creates an index type that parameterizes `Node<I>`:
-/// - `Node<()>` — global primitive
-/// - `Node<EntityId>` — per-entity primitive (member)
+/// - `Node` with `entity: None` — global primitive
+/// - `Node` with `entity: Some(EntityId)` — per-entity primitive (member)
 ///
 /// Any Role can be per-entity: Signal, Field, Fracture, Operator.
 /// Impulse and Chronicle are always global.
@@ -136,7 +136,7 @@ pub struct Entity {
     ///
     /// Parsed from nested declarations inside entity braces.
     /// These are flattened into `World.members` during resolution.
-    pub members: Vec<Node<EntityId>>,
+    pub members: Vec<Node>,
 }
 
 impl Entity {

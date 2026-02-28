@@ -421,7 +421,7 @@ mod tests {
         };
 
         // signal a { resolve { 1.0 } }
-        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, ());
+        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, None);
         node_a.stratum = Some(StratumId::new("default"));
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -441,7 +441,7 @@ mod tests {
         )];
 
         // signal b { resolve { signal.a } }
-        let mut node_b = Node::new(Path::from_path_str("b"), span, RoleData::Signal, ());
+        let mut node_b = Node::new(Path::from_path_str("b"), span, RoleData::Signal, None);
         node_b.stratum = Some(StratumId::new("default"));
         node_b.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -501,7 +501,7 @@ mod tests {
         };
 
         // signal a { resolve { signal.b } }
-        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, ());
+        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, None);
         node_a.stratum = Some(StratumId::new("default"));
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -518,7 +518,7 @@ mod tests {
         )];
 
         // signal b { resolve { signal.a } }
-        let mut node_b = Node::new(Path::from_path_str("b"), span, RoleData::Signal, ());
+        let mut node_b = Node::new(Path::from_path_str("b"), span, RoleData::Signal, None);
         node_b.stratum = Some(StratumId::new("default"));
         node_b.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -576,7 +576,7 @@ mod tests {
             RoleData::Field {
                 reconstruction: None,
             },
-            (),
+            None,
         );
         field_node.stratum = Some(StratumId::new("default"));
         field_node.executions = vec![Execution::new(
@@ -639,7 +639,7 @@ mod tests {
         // signal apple { resolve { 2.0 } }
         // signal banana { resolve { 3.0 } }
 
-        let mut node_zebra = Node::new(Path::from_path_str("zebra"), span, RoleData::Signal, ());
+        let mut node_zebra = Node::new(Path::from_path_str("zebra"), span, RoleData::Signal, None);
         node_zebra.stratum = Some(StratumId::new("default"));
         node_zebra.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -658,7 +658,7 @@ mod tests {
             span,
         )];
 
-        let mut node_apple = Node::new(Path::from_path_str("apple"), span, RoleData::Signal, ());
+        let mut node_apple = Node::new(Path::from_path_str("apple"), span, RoleData::Signal, None);
         node_apple.stratum = Some(StratumId::new("default"));
         node_apple.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -677,7 +677,7 @@ mod tests {
             span,
         )];
 
-        let mut node_banana = Node::new(Path::from_path_str("banana"), span, RoleData::Signal, ());
+        let mut node_banana = Node::new(Path::from_path_str("banana"), span, RoleData::Signal, None);
         node_banana.stratum = Some(StratumId::new("default"));
         node_banana.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -787,7 +787,7 @@ mod tests {
             Path::from_path_str("slow_signal"),
             span,
             RoleData::Signal,
-            (),
+            None,
         );
         node_slow.stratum = Some(StratumId::new("slow"));
         node_slow.executions = vec![Execution::new(
@@ -812,7 +812,7 @@ mod tests {
             Path::from_path_str("fast_signal"),
             span,
             RoleData::Signal,
-            (),
+            None,
         );
         node_fast.stratum = Some(StratumId::new("fast"));
         node_fast.executions = vec![Execution::new(
@@ -877,7 +877,7 @@ mod tests {
         };
 
         // operator op1 { measure { field.a <- 1.0 } }
-        let mut node_op1 = Node::new(Path::from_path_str("op1"), span, RoleData::Operator, ());
+        let mut node_op1 = Node::new(Path::from_path_str("op1"), span, RoleData::Operator, None);
         node_op1.stratum = Some(StratumId::new("default"));
         node_op1.executions = vec![Execution::new(
             "measure".to_string(),
@@ -896,7 +896,7 @@ mod tests {
             span,
         )];
 
-        let mut node_op2 = Node::new(Path::from_path_str("op2"), span, RoleData::Operator, ());
+        let mut node_op2 = Node::new(Path::from_path_str("op2"), span, RoleData::Operator, None);
         node_op2.stratum = Some(StratumId::new("default"));
         node_op2.executions = vec![Execution::new(
             "measure".to_string(),
@@ -952,7 +952,7 @@ mod tests {
         };
 
         // signal a { resolve { prev } }
-        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, ());
+        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, None);
         node_a.stratum = Some(StratumId::new("default"));
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),

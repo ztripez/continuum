@@ -33,7 +33,7 @@
 
 use continuum_cdsl_ast::foundation::Span;
 use continuum_cdsl_ast::{
-    Attribute, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node, ObserveBlock,
+    Attribute, BlockBody, Declaration, Entity, EraDecl, Expr, KernelId, Node, ObserveBlock,
     ObserveWhen, Stmt, Stratum, UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
 };
 use continuum_kernel_registry::get_constant_mapping;
@@ -361,7 +361,7 @@ pub fn desugar_observe(observe: ObserveBlock) -> ObserveBlock {
 }
 
 /// Desugar a node (signal, field, operator, etc)
-pub fn desugar_node<I: Index>(mut node: Node<I>) -> Node<I> {
+pub fn desugar_node(mut node: Node) -> Node {
     node.attributes = desugar_attributes(node.attributes);
     node.execution_blocks = node
         .execution_blocks

@@ -13,8 +13,8 @@ use continuum_cdsl_ast::KernelRegistry;
 ///
 /// This includes execution blocks, warmup logic, fracture conditions,
 /// and chronicle observers.
-pub fn validate_node<I: continuum_cdsl_ast::Index>(
-    node: &continuum_cdsl_ast::Node<I>,
+pub fn validate_node(
+    node: &continuum_cdsl_ast::Node,
     type_table: &TypeTable,
     registry: &KernelRegistry,
 ) -> Result<(), Vec<CompileError>> {
@@ -235,7 +235,7 @@ mod tests {
         // Assertions are allowed in Resolve phase
         let span = test_span();
         let path = Path::from("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),
@@ -269,7 +269,7 @@ mod tests {
         // Assertions are allowed in Fracture phase
         let span = test_span();
         let path = Path::from("test.operator");
-        let mut node = Node::new(path, span, RoleData::Operator, ());
+        let mut node = Node::new(path, span, RoleData::Operator, None);
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),
@@ -303,7 +303,7 @@ mod tests {
         // Assertions are allowed in dedicated Assert phase
         let span = test_span();
         let path = Path::from("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),
@@ -343,7 +343,7 @@ mod tests {
             RoleData::Field {
                 reconstruction: None,
             },
-            (),
+            None,
         );
 
         let assert_stmt = TypedStmt::Assert {
@@ -384,7 +384,7 @@ mod tests {
         // Assertions are NOT allowed in Collect phase (effect phase, not validation)
         let span = test_span();
         let path = Path::from("test.operator");
-        let mut node = Node::new(path, span, RoleData::Operator, ());
+        let mut node = Node::new(path, span, RoleData::Operator, None);
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),
@@ -421,7 +421,7 @@ mod tests {
         // Assert condition must be Bool type
         let span = test_span();
         let path = Path::from("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_scalar_expr(), // Wrong type: Scalar instead of Bool
@@ -461,7 +461,7 @@ mod tests {
 
         for severity in ["warn", "error", "fatal"] {
             let path = Path::from("test.signal");
-            let mut node = Node::new(path, span, RoleData::Signal, ());
+            let mut node = Node::new(path, span, RoleData::Signal, None);
 
             let assert_stmt = TypedStmt::Assert {
                 condition: assertion_make_bool_expr(true),
@@ -493,7 +493,7 @@ mod tests {
         // Invalid severity levels should be rejected
         let span = test_span();
         let path = Path::from("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),
@@ -530,7 +530,7 @@ mod tests {
         // Assertions can have custom messages
         let span = test_span();
         let path = Path::from("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),
@@ -564,7 +564,7 @@ mod tests {
         // Multiple assertions in the same block should all be validated
         let span = test_span();
         let path = Path::from("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         let assert1 = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),

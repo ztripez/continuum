@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod coverage_gap_tests {
     use super::*;
-    use continuum_cdsl_ast::{Execution, ExecutionBody, ExprKind, Node, RoleData, TypedExpr};
     use continuum_cdsl_ast::foundation::{KernelType, Path, Phase, Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::{Execution, ExecutionBody, ExprKind, Node, RoleData, TypedExpr};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
@@ -20,7 +20,7 @@ mod coverage_gap_tests {
     fn test_reads_union_from_multiple_blocks() {
         let span = test_span();
         let path = Path::from_path_str("test.operator");
-        let mut node = Node::new(path, span, RoleData::Operator, ());
+        let mut node = Node::new(path, span, RoleData::Operator, None);
 
         let path1 = Path::from_path_str("signal.a");
         let path2 = Path::from_path_str("signal.b");

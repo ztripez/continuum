@@ -43,7 +43,7 @@ pub(super) fn parse_entity(stream: &mut TokenStream) -> Result<Declaration, Pars
 fn parse_entity_member(
     stream: &mut TokenStream,
     entity_path: &continuum_foundation::Path,
-) -> Result<Node<EntityId>, ParseError> {
+) -> Result<Node, ParseError> {
     let start = stream.current_pos();
 
     let (keyword, role) = match stream.peek() {
@@ -103,7 +103,7 @@ fn parse_entity_member(
     stream.expect(Token::RBrace)?;
 
     let entity_id = EntityId::new(entity_path.to_string());
-    let mut node = Node::new(member_path, stream.span_from(start), role, entity_id);
+    let mut node = Node::new(member_path, stream.span_from(start), role, Some(entity_id));
     node.attributes = attributes;
     node.type_expr = type_expr;
     node.when = special.when;

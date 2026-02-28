@@ -53,8 +53,8 @@ use crate::error::{CompileError, ErrorKind};
 use crate::resolve::attributes::extract_single_identifier;
 use continuum_cdsl_ast::foundation::Span;
 use continuum_cdsl_ast::{
-    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node,
-    StatementVisitor, TypedExpr,
+    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, KernelRegistry, Node, StatementVisitor,
+    TypedExpr,
 };
 
 /// Valid integrator method names
@@ -210,10 +210,7 @@ impl<'a> ExpressionVisitor for IntegrationCallVisitor<'a> {
 /// 1. If integration kernels are used, integrator hint must be present (error)
 /// 2. If integrator hint is present, it must match usage (error)
 /// 3. Generic dt.integrate() calls are allowed regardless of hint
-fn validate_node_integrator<I: Index>(
-    node: &mut Node<I>,
-    _registry: &KernelRegistry,
-) -> Vec<CompileError> {
+fn validate_node_integrator(node: &mut Node, _registry: &KernelRegistry) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
     // Extract declared integrator from attributes
@@ -289,10 +286,7 @@ fn validate_node_integrator<I: Index>(
 ///     // Report compilation errors
 /// }
 /// ```
-pub fn validate_integrators<I: Index>(
-    nodes: &mut [Node<I>],
-    registry: &KernelRegistry,
-) -> Vec<CompileError> {
+pub fn validate_integrators(nodes: &mut [Node], registry: &KernelRegistry) -> Vec<CompileError> {
     let mut all_errors = Vec::new();
 
     for node in nodes {
@@ -314,12 +308,12 @@ mod tests {
         Span::new(0, 0, 0, 0)
     }
 
-    fn make_node() -> Node<()> {
+    fn make_node() -> Node {
         Node::new(
             Path::from_path_str("test.signal"),
             make_span(),
             RoleData::Signal,
-            (),
+            None,
         )
     }
 

@@ -3,7 +3,7 @@
 //! Utility functions for converting between engine types and LSP protocol types.
 //! These are pure transport-layer conversions with no domain logic.
 
-use continuum_cdsl::ast::{Index as NodeIndex, Node, RoleId};
+use continuum_cdsl::ast::{Node, RoleId};
 use tower_lsp::lsp_types::*;
 
 /// Helper to create completion items.
@@ -29,7 +29,7 @@ pub fn role_to_lsp_symbol_kind(role: RoleId) -> SymbolKind {
 }
 
 /// Format hover markdown from an engine Node.
-pub fn format_hover_from_node<I: NodeIndex>(node: &Node<I>) -> Hover {
+pub fn format_hover_from_node(node: &Node) -> Hover {
     let mut parts = Vec::new();
 
     // Title (if present)

@@ -371,7 +371,7 @@ pub(super) fn parse_node_declaration(
     let execution_blocks = super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
 
-    let mut node = Node::new(path, stream.span_from(start), role, ());
+    let mut node = Node::new(path, stream.span_from(start), role, None);
     node.attributes = attributes;
     node.type_expr = type_expr;
     node.when = special.when;

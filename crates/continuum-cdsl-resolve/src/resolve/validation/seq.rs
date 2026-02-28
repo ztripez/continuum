@@ -10,8 +10,8 @@ use crate::error::{CompileError, ErrorKind};
 /// Seq types are intermediate results of `map` operations and must be
 /// consumed by an aggregate (sum, max, etc.) or fold. They cannot be
 /// stored in signals, fields, constants, or configurations.
-pub fn validate_seq_escape<I: continuum_cdsl_ast::Index>(
-    nodes: &[continuum_cdsl_ast::Node<I>],
+pub fn validate_seq_escape(
+    nodes: &[continuum_cdsl_ast::Node],
 ) -> Vec<CompileError> {
     let mut errors = Vec::new();
 

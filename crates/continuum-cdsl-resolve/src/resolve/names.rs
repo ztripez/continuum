@@ -206,7 +206,10 @@ pub fn build_symbol_table(declarations: &[Declaration]) -> SymbolTable {
                 RoleId::Chronicle => table.register_chronicle(node.path.clone()),
             },
             Declaration::Member(node) => {
-                table.register_member(node.index.clone(), node.path.clone());
+                table.register_member(
+                    node.entity.clone().expect("member must have entity"),
+                    node.path.clone(),
+                );
             }
             Declaration::Type(type_decl) => {
                 table.register_type(Path::from(type_decl.name.as_str()));
@@ -650,12 +653,12 @@ mod tests {
         Path::from_path_str(s)
     }
 
-    fn make_node(path: &str) -> Node<()> {
+    fn make_node(path: &str) -> Node {
         Node::new(
             make_path(path),
             Span::new(0, 0, 10, 1),
             RoleData::Signal,
-            (),
+            None,
         )
     }
 

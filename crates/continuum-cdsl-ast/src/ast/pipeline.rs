@@ -1,7 +1,7 @@
-//! Pipeline traits for Node<I> lifecycle
+//! Pipeline traits for Node lifecycle
 //!
 //! These traits form a supertrait hierarchy that describes the data lifecycle
-//! of a Node<I> as it flows through compilation passes:
+//! of a Node as it flows through compilation passes:
 //!
 //! ```text
 //! Named → Parsed → Resolved → Validated → Compiled
@@ -14,17 +14,15 @@
 //! - **Validated**: Errors (validation_errors) - after validation pass
 //! - **Compiled**: Execution (executions, reads) - after compilation
 //!
-//! # What is Node<I>?
+//! # What is Node?
 //!
-//! `Node<I>` is the unified structure for all DSL primitives (signals, fields,
-//! operators, etc.). The generic parameter `I` specifies where the node lives:
-//! - `Node<()>` - Global primitive (e.g., world-level signal)
-//! - `Node<EntityId>` - Per-entity primitive (e.g., `plate.velocity`)
+//! `Node` is the unified structure for all DSL primitives (signals, fields,
+//! operators, etc.). The `entity` field specifies where the node lives:
+//! - `entity: None` - Global primitive (e.g., world-level signal)
+//! - `entity: Some(EntityId)` - Per-entity primitive (e.g., `plate.velocity`)
 //!
-//! `EntityId` is an identifier type for entity definitions (see `crate::ast::node::EntityId`)
-//!
-//! **Traits are read-only.** Mutation happens on the concrete Node<I> struct.
-//! Pipeline functions take `&mut Node<I>`.
+//! **Traits are read-only.** Mutation happens on the concrete Node struct.
+//! Pipeline functions take `&mut Node`.
 //!
 //! # Example
 //!
@@ -176,7 +174,7 @@ mod tests {
     fn test_named_trait() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+        let node = Node::new(path.clone(), span, RoleData::Signal, None);
 
         // Named trait should be implemented
         let named: &dyn Named = &node;
@@ -188,7 +186,7 @@ mod tests {
     fn test_parsed_trait() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+        let node = Node::new(path.clone(), span, RoleData::Signal, None);
 
         // Initially no type_expr or execution_blocks
         let parsed: &dyn Parsed = &node;
@@ -203,7 +201,7 @@ mod tests {
     fn test_resolved_trait() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+        let node = Node::new(path.clone(), span, RoleData::Signal, None);
 
         // Initially no output, empty inputs
         let resolved: &dyn Resolved = &node;
@@ -219,7 +217,7 @@ mod tests {
     fn test_validated_trait() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+        let node = Node::new(path.clone(), span, RoleData::Signal, None);
 
         // Initially no validation errors
         let validated: &dyn Validated = &node;
@@ -235,7 +233,7 @@ mod tests {
     fn test_compiled_trait() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+        let node = Node::new(path.clone(), span, RoleData::Signal, None);
 
         // Initially no executions or reads
         let compiled: &dyn Compiled = &node;
@@ -253,7 +251,7 @@ mod tests {
     fn test_trait_hierarchy() {
         let path = Path::from_path_str("test.operator");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path, span, RoleData::Operator, ());
+        let node = Node::new(path, span, RoleData::Operator, None);
 
         // Verify supertrait relationships work correctly
         fn accepts_named<T: Named>(_: &T) {}
@@ -275,14 +273,14 @@ mod tests {
             Path::from_path_str("world.temperature"),
             Span::new(0, 0, 10, 1),
             RoleData::Signal,
-            (),
+            None,
         );
 
         let operator = Node::new(
             Path::from_path_str("update.temperature"),
             Span::new(0, 0, 10, 1),
             RoleData::Operator,
-            (),
+            None,
         );
 
         // Generic function that works with any Parsed node

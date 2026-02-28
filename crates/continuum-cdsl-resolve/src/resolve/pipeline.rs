@@ -19,7 +19,7 @@ use crate::resolve::types::{
 };
 use crate::resolve::uses::validate_uses;
 use crate::resolve::validation::{validate_node, validate_seq_escape};
-use continuum_cdsl_ast::foundation::{EntityId, Path, Type};
+use continuum_cdsl_ast::foundation::{Path, Type};
 use continuum_cdsl_ast::{
     CompiledWorld, ConfigEntry, ConstEntry, Declaration, Era, Expr, KernelRegistry, Node, World,
     WorldDecl,
@@ -471,7 +471,8 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     // Compile member nodes with self context set to entity type
     for node in &mut member_nodes {
         // Set up self context for member nodes so self.member references work
-        let entity_type = Type::User(continuum_foundation::TypeId::from(node.index.0.clone()));
+        let entity_id = node.entity.as_ref().expect("member node must have entity");
+        let entity_type = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
         let member_ctx = ctx.with_execution_context(Some(entity_type), None, None, None, None);
         if let Err(mut e) = compile_execution_blocks(node, &member_ctx) {
             errors.append(&mut e);
@@ -555,7 +556,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     Ok(CompiledWorld::new(world, dag_set))
 }
 
-fn collect_node_types(globals: &[Node<()>], members: &[Node<EntityId>]) -> HashMap<Path, Type> {
+fn collect_node_types(globals: &[Node], members: &[Node]) -> HashMap<Path, Type> {
     let mut map = HashMap::new();
     for n in globals {
         if let Some(ty) = &n.output {
@@ -814,13 +815,13 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
     }
 }
 
-fn inject_debug_fields(global_nodes: &mut Vec<Node<()>>, member_nodes: &mut Vec<Node<EntityId>>) {
+fn inject_debug_fields(global_nodes: &mut Vec<Node>, member_nodes: &mut Vec<Node>) {
     use continuum_cdsl_ast::RoleId;
 
     let mut debug_globals = Vec::new();
     for node in global_nodes.iter() {
         if node.role_id() == RoleId::Signal {
-            debug_globals.push(create_debug_node(node, ()));
+            debug_globals.push(create_debug_node(node));
         }
     }
     global_nodes.extend(debug_globals);
@@ -828,13 +829,13 @@ fn inject_debug_fields(global_nodes: &mut Vec<Node<()>>, member_nodes: &mut Vec<
     let mut debug_members = Vec::new();
     for node in member_nodes.iter() {
         if node.role_id() == RoleId::Signal {
-            debug_members.push(create_debug_node(node, node.index.clone()));
+            debug_members.push(create_debug_node(node));
         }
     }
     member_nodes.extend(debug_members);
 }
 
-fn create_debug_node<I: continuum_cdsl_ast::Index>(source: &Node<I>, index: I) -> Node<I> {
+fn create_debug_node(source: &Node) -> Node {
     use continuum_cdsl_ast::{BlockBody, RoleData};
 
     let mut debug_path = Path::from("debug");
@@ -848,7 +849,7 @@ fn create_debug_node<I: continuum_cdsl_ast::Index>(source: &Node<I>, index: I) -
         RoleData::Field {
             reconstruction: None,
         },
-        index,
+        source.entity.clone(),
     );
     // Copy resolved metadata
     debug_node.type_expr = source.type_expr.clone();
@@ -971,7 +972,7 @@ mod tests {
         let entity = Entity::new(entity_id.clone(), Path::from_path_str("plate"), span);
 
         let member_path = Path::from_path_str("plate.mass");
-        let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
+        let mut member = Node::new(member_path, span, RoleData::Signal, Some(entity_id));
         member.type_expr = Some(continuum_cdsl_ast::TypeExpr::Scalar {
             unit: None,
             bounds: None,
@@ -1347,7 +1348,7 @@ mod tests {
         let stratum = Stratum::new(StratumId::new("sim"), stratum_path.clone(), span);
 
         let signal_path = Path::from_path_str("gravity");
-        let mut signal = Node::new(signal_path.clone(), span, RoleData::Signal, ());
+        let mut signal = Node::new(signal_path.clone(), span, RoleData::Signal, None);
         signal.type_expr = Some(continuum_cdsl_ast::TypeExpr::Scalar {
             unit: None,
             bounds: None,
@@ -1373,7 +1374,7 @@ mod tests {
             member_path.clone(),
             span,
             RoleData::Signal,
-            entity_id.clone(),
+            Some(entity_id.clone()),
         );
         member.type_expr = Some(continuum_cdsl_ast::TypeExpr::Scalar {
             unit: None,
@@ -1441,7 +1442,7 @@ mod tests {
             .get(&Path::from_path_str("debug.plate.mass"))
             .unwrap();
         assert_eq!(debug_member.role_id(), continuum_cdsl_ast::RoleId::Field);
-        assert_eq!(debug_member.index, EntityId::new("plate"));
+        assert_eq!(debug_member.entity, Some(EntityId::new("plate")));
     }
 }
 
@@ -1647,9 +1648,7 @@ mod config_const_tests {
 ///
 /// Only applies to Signal nodes. Extracts numeric literal from `:initial()` attribute
 /// and stores it for runtime initialization.
-fn extract_initial_values<I: continuum_cdsl_ast::Index>(
-    nodes: &mut [Node<I>],
-) -> Vec<CompileError> {
+fn extract_initial_values(nodes: &mut [Node]) -> Vec<CompileError> {
     use crate::resolve::attributes::extract_numeric_literal;
     use continuum_cdsl_ast::RoleId;
 

@@ -27,7 +27,7 @@ use crate::resolve::expr_typing::{type_expression, TypingContext};
 use crate::resolve::utils::sort_unique;
 use continuum_cdsl_ast::foundation::Phase;
 use continuum_cdsl_ast::{
-    BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleData, RoleId, Stmt, TypedStmt,
+    BlockBody, Execution, ExecutionBody, Expr, Node, RoleData, RoleId, Stmt, TypedStmt,
 };
 use std::collections::HashSet;
 
@@ -688,7 +688,7 @@ pub(crate) fn validate_phase_for_role(
 /// use std::collections::HashMap;
 ///
 /// let span = Span::new(0, 0, 0, 1);
-/// let mut node = Node::new(Path::from_path_str("demo.counter"), span, RoleData::Signal, ());
+/// let mut node = Node::new(Path::from_path_str("demo.counter"), span, RoleData::Signal, None);
 /// node.output = Some(Type::Kernel(KernelType {
 ///     shape: Shape::Scalar,
 ///     unit: Unit::DIMENSIONLESS,
@@ -717,8 +717,8 @@ pub(crate) fn validate_phase_for_role(
 /// compile_execution_blocks(&mut node, &ctx).unwrap();
 /// assert_eq!(node.executions.len(), 1);
 /// ```
-pub fn compile_execution_blocks<I: Index>(
-    node: &mut Node<I>,
+pub fn compile_execution_blocks(
+    node: &mut Node,
     ctx: &TypingContext,
 ) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();

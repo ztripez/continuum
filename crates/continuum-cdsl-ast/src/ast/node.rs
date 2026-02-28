@@ -1,18 +1,14 @@
-//! Unified Node<I> structure
+//! Unified Node structure
 //!
-//! This module defines `Node<I>`, the single structure that represents all
+//! This module defines `Node`, the single structure that represents all
 //! AST nodes throughout the compilation pipeline. Unlike traditional compilers
 //! with separate AST and IR representations, Continuum uses one unified structure
 //! that accumulates data through each compilation phase.
 //!
-//! # The Node<I> Design
+//! # The Node Design
 //!
-//! `Node<I>` is generic over an index type `I`:
-//! - `Node<()>` - Global primitive (signal, field, operator at world scope)
-//! - `Node<EntityId>` - Per-entity primitive (member)
-//!
-//! This makes the distinction between global and per-entity nodes type-safe and
-//! explicit in the type system.
+//! All nodes use the same `Node` type. The `entity` field distinguishes
+//! global nodes (`entity: None`) from per-entity members (`entity: Some(EntityId)`).
 //!
 //! # Lifecycle
 //!
@@ -37,7 +33,7 @@
 //!     Path::from_path_str("world.temperature"),
 //!     Span::new(0, 0, 100, 1),
 //!     RoleData::Signal,
-//!     (), // global
+//!     None, // global
 //! );
 //!
 //! // After type resolution
@@ -49,9 +45,9 @@
 //!     Path::from_path_str("plate.area"),
 //!     Span::new(0, 0, 100, 1),
 //!     RoleData::Signal,
-//!     EntityId(Path::from_path_str("plate")),
+//!     Some(EntityId::new("plate")),
 //! );
-//! assert_eq!(member.index, EntityId(Path::from_path_str("plate")));
+//! assert_eq!(member.entity, Some(EntityId::new("plate")));
 //! ```
 
 use crate::foundation::{AssertionSeverity, EntityId, Path, Span, StratumId, Type};
@@ -63,21 +59,6 @@ use super::declaration::{
 };
 use super::expr::TypedExpr;
 use super::role::RoleData;
-
-/// Index trait - marker for node indexing types
-///
-/// Implemented by:
-/// - `()` for global primitives (signals, fields, operators at world scope)
-/// - `EntityId` for per-entity primitives (members)
-///
-/// This is a simple marker trait - the type parameter I is enough to
-/// distinguish global from per-entity nodes at compile time.
-pub trait Index: Clone + PartialEq + std::fmt::Debug {}
-
-impl Index for () {}
-
-// Implement Index for foundation EntityId type
-impl Index for EntityId {}
 
 /// Nested config or const block defined inside a node declaration.
 ///
@@ -105,17 +86,17 @@ pub enum NestedBlock {
 
 /// Unified node structure - everything flows through this
 ///
-/// Node<I> is the single structure used throughout compilation:
-/// - Parser produces Node<()> and Node<EntityId>
+/// Node is the single structure used throughout compilation:
+/// - Parser produces Node (with entity = None for globals, Some for members)
 /// - Type resolution adds `output` and clears `type_expr`
 /// - Validation adds `validation_errors`
 /// - Compilation adds `executions` and `reads`, clears `execution_blocks`
 ///
-/// The Index parameter I distinguishes:
-/// - Node<()> = global primitive
-/// - Node<EntityId> = per-entity primitive (member)
+/// The `entity` field distinguishes:
+/// - `entity: None` = global primitive
+/// - `entity: Some(EntityId)` = per-entity primitive (member)
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Node<I: Index = ()> {
+pub struct Node {
     // =========================================================================
     // Identity
     // =========================================================================
@@ -194,13 +175,13 @@ pub struct Node<I: Index = ()> {
     pub inputs: Vec<(String, Type)>,
 
     // =========================================================================
-    // Indexing
+    // Entity ownership
     // =========================================================================
-    /// Where this node lives
+    /// Which entity this node belongs to, if any.
     ///
-    /// - `I = ()` for global primitives
-    /// - `I = EntityId` for per-entity primitives (members)
-    pub index: I,
+    /// - `None` for global primitives (world-scope signals, fields, operators)
+    /// - `Some(EntityId)` for per-entity primitives (members)
+    pub entity: Option<EntityId>,
 
     // =========================================================================
     // Lifecycle Fields (cleared after consumption)
@@ -279,7 +260,7 @@ pub struct Node<I: Index = ()> {
     pub validation_errors: Vec<ValidationError>,
 }
 
-impl<I: Index> Node<I> {
+impl Node {
     /// Create a new node with minimal required fields
     ///
     /// All optional fields are initialized to None/empty. Lifecycle fields
@@ -291,12 +272,12 @@ impl<I: Index> Node<I> {
     /// - `path`: Hierarchical path to this node (e.g., "world.temperature")
     /// - `span`: Source location for error messages
     /// - `role`: Role data (what this node is + role-specific data)
-    /// - `index`: Where this node lives (() = global, EntityId = per-entity)
+    /// - `entity`: Which entity owns this node (None = global, Some = per-entity)
     ///
     /// # Returns
     ///
     /// A new node in initial state (not resolved, not compiled)
-    pub fn new(path: Path, span: Span, role: RoleData, index: I) -> Self {
+    pub fn new(path: Path, span: Span, role: RoleData, entity: Option<EntityId>) -> Self {
         Self {
             path,
             span,
@@ -313,7 +294,7 @@ impl<I: Index> Node<I> {
             initial: None,
             output: None,
             inputs: Vec::new(),
-            index,
+            entity,
             attributes: Vec::new(),
             type_expr: None,
             warmup: None,
@@ -380,7 +361,7 @@ impl<I: Index> Node<I> {
 
 use super::pipeline::{Compiled, Named, Parsed, Resolved, Validated};
 
-impl<I: Index> Named for Node<I> {
+impl Named for Node {
     fn path(&self) -> &Path {
         &self.path
     }
@@ -390,7 +371,7 @@ impl<I: Index> Named for Node<I> {
     }
 }
 
-impl<I: Index> Parsed for Node<I> {
+impl Parsed for Node {
     fn type_expr(&self) -> Option<&TypeExpr> {
         self.type_expr.as_ref()
     }
@@ -400,7 +381,7 @@ impl<I: Index> Parsed for Node<I> {
     }
 }
 
-impl<I: Index> Resolved for Node<I> {
+impl Resolved for Node {
     fn output(&self) -> Option<&Type> {
         self.output.as_ref()
     }
@@ -410,13 +391,13 @@ impl<I: Index> Resolved for Node<I> {
     }
 }
 
-impl<I: Index> Validated for Node<I> {
+impl Validated for Node {
     fn validation_errors(&self) -> &[ValidationError] {
         &self.validation_errors
     }
 }
 
-impl<I: Index> Compiled for Node<I> {
+impl Compiled for Node {
     fn executions(&self) -> &[Execution] {
         &self.executions
     }
@@ -714,12 +695,12 @@ mod tests {
     fn test_node_creation_global() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+        let node = Node::new(path.clone(), span, RoleData::Signal, None);
 
         assert_eq!(node.path, path);
         assert_eq!(node.span, span);
         assert_eq!(node.role_id(), super::super::role::RoleId::Signal);
-        assert_eq!(node.index, ());
+        assert_eq!(node.entity, None);
         assert!(!node.is_resolved());
         assert!(!node.is_compiled());
         assert!(!node.has_errors());
@@ -730,10 +711,15 @@ mod tests {
         let path = Path::from_path_str("test.member");
         let span = Span::new(0, 0, 10, 1);
         let entity_id = EntityId::new("test.entity");
-        let node = Node::new(path.clone(), span, RoleData::Signal, entity_id.clone());
+        let node = Node::new(
+            path.clone(),
+            span,
+            RoleData::Signal,
+            Some(entity_id.clone()),
+        );
 
         assert_eq!(node.path, path);
-        assert_eq!(node.index, entity_id);
+        assert_eq!(node.entity, Some(entity_id));
         assert_eq!(node.role_id(), super::super::role::RoleId::Signal);
     }
 
@@ -753,7 +739,7 @@ mod tests {
             RoleData::Field {
                 reconstruction: Some(hint.clone()),
             },
-            (),
+            None,
         );
 
         assert_eq!(node.role_id(), super::super::role::RoleId::Field);
@@ -777,7 +763,7 @@ mod tests {
             RoleData::Impulse {
                 payload: Some(payload_type.clone()),
             },
-            (),
+            None,
         );
 
         assert_eq!(node.role_id(), super::super::role::RoleId::Impulse);
@@ -793,7 +779,7 @@ mod tests {
     fn test_node_lifecycle_states() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // Initial state: not resolved, not compiled
         assert!(!node.is_resolved());
@@ -831,7 +817,7 @@ mod tests {
     fn test_node_validation_errors() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         assert!(!node.has_errors());
 
@@ -847,7 +833,7 @@ mod tests {
             Path::from_path_str("test.signal"),
             span,
             RoleData::Signal,
-            (),
+            None,
         );
         assert_eq!(signal.role_id(), super::super::role::RoleId::Signal);
 
@@ -857,7 +843,7 @@ mod tests {
             RoleData::Field {
                 reconstruction: None,
             },
-            (),
+            None,
         );
         assert_eq!(field.role_id(), super::super::role::RoleId::Field);
 
@@ -865,7 +851,7 @@ mod tests {
             Path::from_path_str("test.operator"),
             span,
             RoleData::Operator,
-            (),
+            None,
         );
         assert_eq!(operator.role_id(), super::super::role::RoleId::Operator);
 
@@ -873,7 +859,7 @@ mod tests {
             Path::from_path_str("test.impulse"),
             span,
             RoleData::Impulse { payload: None },
-            (),
+            None,
         );
         assert_eq!(impulse.role_id(), super::super::role::RoleId::Impulse);
 
@@ -881,7 +867,7 @@ mod tests {
             Path::from_path_str("test.fracture"),
             span,
             RoleData::Fracture,
-            (),
+            None,
         );
         assert_eq!(fracture.role_id(), super::super::role::RoleId::Fracture);
 
@@ -889,7 +875,7 @@ mod tests {
             Path::from_path_str("test.chronicle"),
             span,
             RoleData::Chronicle,
-            (),
+            None,
         );
         assert_eq!(chronicle.role_id(), super::super::role::RoleId::Chronicle);
     }
@@ -908,7 +894,7 @@ mod tests {
     fn test_node_lifecycle_boundaries() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // output set but type_expr still present -> not resolved
         node.type_expr = Some(TypeExpr::Bool);
@@ -953,7 +939,7 @@ mod tests {
     fn test_node_default_initialization() {
         let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
-        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+        let node = Node::new(path.clone(), span, RoleData::Signal, None);
 
         // Verify all lifecycle fields start empty/None
         assert!(node.file.is_none());

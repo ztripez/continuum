@@ -160,7 +160,7 @@ mod tests {
             Path::from_path_str("mass"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         entity.members.push(member);
 
@@ -202,7 +202,7 @@ mod tests {
             Path::from_path_str("mass"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         entity.members.push(member);
 
@@ -245,7 +245,7 @@ mod tests {
             Path::from_path_str("mass"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         member.attributes.push(Attribute {
             name: "stratum".to_string(),
@@ -298,7 +298,7 @@ mod tests {
             Path::from_path_str("mass"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         entity.members.push(member);
 
@@ -407,7 +407,7 @@ mod tests {
             Path::from_path_str("mass"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         entity.members.push(member1);
 
@@ -415,7 +415,7 @@ mod tests {
             Path::from_path_str("velocity"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         entity.members.push(member2);
 
@@ -461,7 +461,7 @@ mod tests {
             Path::from_path_str("mass"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         entity.members.push(member1);
 
@@ -470,7 +470,7 @@ mod tests {
             Path::from_path_str("velocity"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         member2.attributes.push(Attribute {
             name: "stratum".to_string(),
@@ -487,7 +487,7 @@ mod tests {
             Path::from_path_str("position"),
             span,
             RoleData::Signal,
-            EntityId::new("particle"),
+            Some(EntityId::new("particle")),
         );
         member3.attributes.push(Attribute {
             name: "stratum".to_string(),

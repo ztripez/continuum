@@ -24,7 +24,7 @@ use crate::ast::node::Node;
 use crate::ast::structural::{Entity, Stratum};
 use crate::ast::untyped::{Expr, TypeExpr};
 pub use crate::foundation::{DeterminismPolicy, FaultPolicy, WorldPolicy};
-use crate::foundation::{EntityId, Path, Span};
+use crate::foundation::{Path, Span};
 
 /// Top-level declaration variants returned by parser.
 ///
@@ -35,10 +35,10 @@ use crate::foundation::{EntityId, Path, Span};
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Declaration {
     /// Global primitive (signal, field, operator, impulse, fracture, chronicle)
-    Node(Node<()>),
+    Node(Node),
 
     /// Per-entity primitive (member signal/field/etc)
-    Member(Node<EntityId>),
+    Member(Node),
 
     /// Entity declaration (index space)
     Entity(Entity),

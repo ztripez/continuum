@@ -106,7 +106,7 @@ pub fn project_entity_types(
             }
             Declaration::Member(node) => {
                 entity_members
-                    .entry(node.index.clone())
+                    .entry(node.entity.clone().expect("member must have entity"))
                     .or_insert_with(Vec::new)
                     .push(node);
             }
@@ -131,9 +131,9 @@ pub fn project_entity_types(
 }
 
 /// Recursively build nested types for an entity's hierarchical members.
-fn project_hierarchical_entity<I: continuum_cdsl_ast::Index>(
+fn project_hierarchical_entity(
     root_path: &Path,
-    members: &[&continuum_cdsl_ast::Node<I>],
+    members: &[&continuum_cdsl_ast::Node],
     type_table: &mut TypeTable,
 ) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
@@ -288,8 +288,8 @@ pub fn resolve_user_types(
 ///
 /// If an impulse has no explicit type_expr, we check attributes for a user-defined
 /// type name (e.g., `: PlateCollisionPayload` is parsed as an attribute with no args).
-pub fn resolve_node_types<I: continuum_cdsl_ast::Index>(
-    nodes: &mut [continuum_cdsl_ast::Node<I>],
+pub fn resolve_node_types(
+    nodes: &mut [continuum_cdsl_ast::Node],
     type_table: &TypeTable,
 ) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
@@ -732,7 +732,7 @@ mod tests {
 
         // plate.physics.velocity
         let member_path = Path::from_path_str("plate.physics.velocity");
-        let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
+        let mut member = Node::new(member_path, span, RoleData::Signal, Some(entity_id));
         member.type_expr = Some(TypeExpr::Vector { dim: 3, unit: None });
 
         let decls = vec![Declaration::Entity(entity), Declaration::Member(member)];
@@ -773,7 +773,7 @@ mod tests {
         let entity_a = Entity::new(id_a.clone(), path_a.clone(), span);
 
         // Member A.b : B
-        let mut member_ab = Node::new(Path::from_path_str("A.b"), span, RoleData::Signal, id_a);
+        let mut member_ab = Node::new(Path::from_path_str("A.b"), span, RoleData::Signal, Some(id_a));
         member_ab.type_expr = Some(TypeExpr::User(Path::from_path_str("B")));
 
         // Entity B
@@ -782,7 +782,7 @@ mod tests {
         let entity_b = Entity::new(id_b.clone(), path_b.clone(), span);
 
         // Member B.a : A
-        let mut member_ba = Node::new(Path::from_path_str("B.a"), span, RoleData::Signal, id_b);
+        let mut member_ba = Node::new(Path::from_path_str("B.a"), span, RoleData::Signal, Some(id_b));
         member_ba.type_expr = Some(TypeExpr::User(Path::from_path_str("A")));
 
         let decls = vec![

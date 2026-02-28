@@ -7,7 +7,7 @@
 use crate::ast::declaration::{Declaration, WorldDecl};
 use crate::ast::node::Node;
 use crate::ast::structural::{Entity, Era, Stratum};
-use crate::foundation::{EntityId, EraId, Path};
+use crate::foundation::{EraId, Path};
 use indexmap::IndexMap;
 
 // FIXME(continuum-vdcp): DagSet should be in continuum-cdsl-ast for reuse
@@ -55,10 +55,10 @@ pub struct World {
     pub initial_era: Option<EraId>,
 
     /// Global nodes keyed by fully-qualified path.
-    pub globals: IndexMap<Path, Node<()>>,
+    pub globals: IndexMap<Path, Node>,
 
     /// Per-entity members keyed by fully-qualified path.
-    pub members: IndexMap<Path, Node<EntityId>>,
+    pub members: IndexMap<Path, Node>,
 
     /// Entity definitions keyed by fully-qualified path.
     pub entities: IndexMap<Path, Entity>,

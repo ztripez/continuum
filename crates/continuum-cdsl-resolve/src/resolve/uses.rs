@@ -48,7 +48,7 @@
 //! ```
 
 use continuum_cdsl_ast::{
-    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node,
+    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, KernelRegistry, Node,
     StatementVisitor, TypedExpr,
 };
 
@@ -415,7 +415,7 @@ fn collect_required_uses_untyped(
 ///
 /// Checks all execution blocks (resolve, collect, warmup, when, observe, assertions)
 /// for dangerous function usage and validates against declared uses.
-fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Vec<CompileError> {
+fn validate_node_uses(node: &Node, registry: &KernelRegistry) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
     // Extract declared uses from attributes (emits errors for invalid arguments)
@@ -498,7 +498,7 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
 ///     // Report compilation errors
 /// }
 /// ```
-pub fn validate_uses<I: Index>(nodes: &[Node<I>], registry: &KernelRegistry) -> Vec<CompileError> {
+pub fn validate_uses(nodes: &[Node], registry: &KernelRegistry) -> Vec<CompileError> {
     let mut all_errors = Vec::new();
 
     for node in nodes {
@@ -626,7 +626,7 @@ mod tests {
         let path = Path::from_path_str("test.signal");
 
         // Create node with clamp usage but no uses declaration
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         let value = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
         let min = TypedExpr::new(
@@ -680,7 +680,7 @@ mod tests {
         let path = Path::from_path_str("test.signal");
 
         // Create node with clamp usage AND uses declaration
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
         node.attributes.push(make_attr_uses(vec!["maths.clamping"]));
 
         let value = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
@@ -878,7 +878,7 @@ mod tests {
         let path = Path::from_path_str("test.signal");
 
         // Create node with BOTH clamp AND dt usage but NO declarations
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // clamp(dt.raw(), 0.0, 1.0) - triggers both maths.clamping AND dt.raw
         let kernel_id = continuum_kernel_types::KernelId::new("dt", "raw");
@@ -962,7 +962,7 @@ mod tests {
         let path = Path::from_path_str("test.signal");
 
         // Create node with warmup block using dt
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // warmup { iterate { prev + dt } }
         let prev_expr = Expr::new(UntypedKind::Prev, span);
@@ -996,7 +996,7 @@ mod tests {
         let span = make_span();
         let path = Path::from_path_str("test.signal");
 
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
         node.attributes.push(make_attr_uses(vec!["dt.raw"]));
 
         // warmup { iterate { prev + dt } }
@@ -1029,7 +1029,7 @@ mod tests {
         let span = make_span();
         let path = Path::from_path_str("test.signal");
 
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // warmup { iterate { maths.clamp(prev, 0.0, 1.0) } }
         let clamp_path = Path::from_path_str("maths.clamp");
@@ -1077,7 +1077,7 @@ mod tests {
         let span = make_span();
         let path = Path::from_path_str("test.fracture");
 
-        let mut node = Node::new(path, span, RoleData::Fracture, ());
+        let mut node = Node::new(path, span, RoleData::Fracture, None);
 
         // when { dt > 0.1 }
         let dt_expr = Expr::new(
@@ -1116,7 +1116,7 @@ mod tests {
         let span = make_span();
         let path = Path::from_path_str("test.chronicle");
 
-        let mut node = Node::new(path, span, RoleData::Chronicle, ());
+        let mut node = Node::new(path, span, RoleData::Chronicle, None);
 
         // observe {
         //     when maths.saturate(signal.value) > 0.9 {
@@ -1172,7 +1172,7 @@ mod tests {
         let path = Path::from_path_str("test.signal");
 
         // Create node with warmup block using nested let with dt
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // warmup { iterate { let x = dt in x + prev } }
         let dt_value = Expr::new(
@@ -1217,7 +1217,7 @@ mod tests {
         let path = Path::from_path_str("test.fracture");
 
         // Create node with when block using if expression with dt
-        let mut node = Node::new(path, span, RoleData::Fracture, ());
+        let mut node = Node::new(path, span, RoleData::Fracture, None);
 
         // when { if dt > 0.1 { true } else { false } }
         let dt_expr = Expr::new(
@@ -1269,7 +1269,7 @@ mod tests {
         let path = Path::from_path_str("test.signal");
 
         // Create node with warmup block using clamp nested in binary expression
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // warmup { iterate { prev + maths.clamp(delta, -1, 1) } }
         let prev_expr = Expr::new(UntypedKind::Prev, span);
@@ -1324,7 +1324,7 @@ mod tests {
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // Desugared form: maths.add(prev, dt) as KernelCall
         let dt_expr = Expr::new(
@@ -1364,7 +1364,7 @@ mod tests {
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
-        let mut node = Node::new(path, span, RoleData::Signal, ());
+        let mut node = Node::new(path, span, RoleData::Signal, None);
 
         // -dt.raw() (dt is now a pure namespace)
         let dt_expr = Expr::new(

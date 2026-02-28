@@ -505,7 +505,7 @@ fn test_compile_execution_blocks_with_typed_expression() {
     );
 
     // Create node with resolve block containing typed expression
-    let mut node = Node::new(path.clone(), span, RoleData::Signal, ());
+    let mut node = Node::new(path.clone(), span, RoleData::Signal, None);
     node.execution_blocks = vec![(
         "resolve".to_string(),
         BlockBody::TypedExpression(typed_expr),
@@ -574,7 +574,7 @@ fn test_compile_execution_blocks_populates_node_reads() {
     let typed_expr = TypedExpr::new(ExprKind::Signal(signal_path.clone()), ty, span);
 
     // Create node with resolve block
-    let mut node = Node::new(path.clone(), span, RoleData::Signal, ());
+    let mut node = Node::new(path.clone(), span, RoleData::Signal, None);
     node.execution_blocks = vec![(
         "resolve".to_string(),
         BlockBody::TypedExpression(typed_expr),
@@ -622,7 +622,7 @@ fn test_compile_execution_blocks_union_multiple_blocks() {
         bounds: None,
     });
 
-    let mut node = Node::new(path, span, RoleData::Operator, ());
+    let mut node = Node::new(path, span, RoleData::Operator, None);
     // Block 1 reads 'signal.b'
     node.execution_blocks.push((
         "collect".to_string(),
@@ -678,7 +678,7 @@ fn test_compile_execution_blocks_includes_assertions() {
         bounds: None,
     });
 
-    let mut node = Node::new(path, span, RoleData::Signal, ());
+    let mut node = Node::new(path, span, RoleData::Signal, None);
 
     // Add an assertion that reads 'signal.limit'
     node.assertions.push(Assertion::new(
@@ -728,7 +728,7 @@ fn test_compile_execution_blocks_untyped_expression_success() {
     );
 
     // Create node with resolve block containing UNTYPED expression
-    let mut node = Node::new(path.clone(), span, RoleData::Signal, ());
+    let mut node = Node::new(path.clone(), span, RoleData::Signal, None);
     node.execution_blocks = vec![("resolve".to_string(), BlockBody::Expression(untyped_expr))];
 
     // Compile execution blocks - should now succeed (types on the fly)
@@ -853,7 +853,7 @@ fn test_compile_execution_blocks_union_duplicates() {
         bounds: None,
     });
 
-    let mut node = Node::new(path, span, RoleData::Signal, ());
+    let mut node = Node::new(path, span, RoleData::Signal, None);
 
     // Block reads 'signal.a'
     node.execution_blocks.push((
@@ -913,7 +913,7 @@ fn test_compile_execution_blocks_multiple_assertions() {
         bounds: None,
     });
 
-    let mut node = Node::new(path, span, RoleData::Signal, ());
+    let mut node = Node::new(path, span, RoleData::Signal, None);
 
     node.assertions.push(Assertion::new(
         TypedExpr::new(ExprKind::Signal(path_1.clone()), ty.clone(), span),

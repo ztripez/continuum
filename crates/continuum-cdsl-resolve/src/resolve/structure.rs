@@ -41,7 +41,7 @@
 //! use continuum_cdsl::resolve::structure::{validate_cycles, validate_collisions};
 //! use continuum_cdsl::ast::Node;
 //!
-//! let nodes: Vec<Node<()>> = parse_world(source);
+//! let nodes: Vec<Node> = parse_world(source);
 //!
 //! // Check for cycles
 //! let cycle_errors = validate_cycles(&nodes);
@@ -57,7 +57,9 @@
 //! ```
 
 use crate::error::{CompileError, ErrorKind};
-use continuum_cdsl_ast::foundation::{EntityId, Path, Span};
+use continuum_cdsl_ast::foundation::{Path, Span};
+#[cfg(test)]
+use continuum_cdsl_ast::foundation::EntityId;
 use continuum_cdsl_ast::{Declaration, Node, RoleId};
 use std::collections::{HashMap, HashSet};
 
@@ -71,7 +73,7 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Returns [`ErrorKind::CyclicDependency`] for each detected cycle, with a
 /// message describing the cycle path.
-pub fn validate_cycles(globals: &[Node<()>], members: &[Node<EntityId>]) -> Vec<CompileError> {
+pub fn validate_cycles(globals: &[Node], members: &[Node]) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
     // Build dependency graph: path → (list of paths it depends on, span)
@@ -407,8 +409,8 @@ mod tests {
         Span::new(0, 0, 0, 1)
     }
 
-    fn make_signal(path: &str, reads: Vec<&str>) -> Node<()> {
-        let mut node = Node::new(Path::from_path_str(path), test_span(), RoleData::Signal, ());
+    fn make_signal(path: &str, reads: Vec<&str>) -> Node {
+        let mut node = Node::new(Path::from_path_str(path), test_span(), RoleData::Signal, None);
         node.reads = reads.iter().map(|s| Path::from_path_str(s)).collect();
         node
     }
@@ -538,7 +540,7 @@ mod tests {
             Path::from_path_str("player.health"),
             span,
             RoleData::Signal,
-            EntityId::new("player"),
+            Some(EntityId::new("player")),
         );
 
         let decls = vec![Declaration::Entity(entity), Declaration::Member(member)];

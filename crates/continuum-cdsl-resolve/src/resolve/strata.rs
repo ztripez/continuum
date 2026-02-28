@@ -38,7 +38,7 @@
 //! use continuum_cdsl::ast::{Node, Stratum};
 //!
 //! // After parsing and type resolution
-//! let mut nodes: Vec<Node<_>> = parsed_ast.nodes;
+//! let mut nodes: Vec<Node> = parsed_ast.nodes;
 //! let mut strata: Vec<Stratum> = parsed_ast.strata;
 //!
 //! // Phase 12.5-A: Resolve stratum assignments and cadences
@@ -108,7 +108,7 @@ use std::collections::BTreeMap;
 ///
 /// let span = Span::new(0, 0, 0, 1);
 /// let stratum = Stratum::new(StratumId::new("sim"), Path::from_path_str("sim"), span);
-/// let mut node = Node::new(Path::from_path_str("signal.temp"), span, RoleData::Signal, ());
+/// let mut node = Node::new(Path::from_path_str("signal.temp"), span, RoleData::Signal, None);
 /// node.attributes.push(Attribute {
 ///     name: "stratum".to_string(),
 ///     args: vec![Expr::local("sim".to_string(), span)],
@@ -119,10 +119,7 @@ use std::collections::BTreeMap;
 /// resolve_strata(&mut nodes, &[stratum]).unwrap();
 /// assert!(nodes[0].stratum.is_some());
 /// ```
-pub fn resolve_strata<I: continuum_cdsl_ast::Index>(
-    nodes: &mut [Node<I>],
-    strata: &[Stratum],
-) -> Result<(), Vec<CompileError>> {
+pub fn resolve_strata(nodes: &mut [Node], strata: &[Stratum]) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
 
     // Build stratum lookup map: name → StratumId (BTreeMap for deterministic iteration)
@@ -365,8 +362,13 @@ mod tests {
         stratum
     }
 
-    fn make_node(path: &str, attributes: Vec<Attribute>) -> Node<()> {
-        let mut node = Node::new(Path::from_path_str(path), test_span(), RoleData::Signal, ());
+    fn make_node(path: &str, attributes: Vec<Attribute>) -> Node {
+        let mut node = Node::new(
+            Path::from_path_str(path),
+            test_span(),
+            RoleData::Signal,
+            None,
+        );
         node.attributes = attributes;
         node
     }
@@ -497,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_resolve_no_strata_no_nodes() {
-        let mut nodes: Vec<Node<()>> = vec![];
+        let mut nodes: Vec<Node> = vec![];
         let strata: Vec<Stratum> = vec![];
 
         let result = resolve_strata(&mut nodes, &strata);
@@ -506,7 +508,7 @@ mod tests {
 
     #[test]
     fn test_resolve_no_nodes_with_strata() {
-        let mut nodes: Vec<Node<()>> = vec![];
+        let mut nodes: Vec<Node> = vec![];
         let strata = vec![make_stratum("fast", vec![])];
 
         let result = resolve_strata(&mut nodes, &strata);
