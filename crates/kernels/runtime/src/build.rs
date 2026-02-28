@@ -201,12 +201,6 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     let mut era_configs = IndexMap::new();
 
     for era in compiled.world.eras.values() {
-        if !era.transitions.is_empty() {
-            panic!(
-                "era '{}' declares transitions, but runtime transition compilation is not implemented",
-                era.path
-            );
-        }
         let dt = literal_scalar(&era.dt)
             .map(Dt)
             .unwrap_or_else(|| panic!("Era {} has non-literal dt expression", era.path));
@@ -224,12 +218,19 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
             strata.insert(policy.stratum.clone(), state);
         }
 
+        // Compile era transition conditions into a TransitionFn
+        let transition: Option<crate::executor::TransitionFn> = if era.transitions.is_empty() {
+            None
+        } else {
+            Some(compile_era_transitions(&era.transitions, dt))
+        };
+
         era_configs.insert(
             EraId::new(era.path.to_string()),
             EraConfig {
                 dt,
                 strata,
-                transition: None,
+                transition,
             },
         );
     }
@@ -787,6 +788,105 @@ fn literal_scalar(expr: &TypedExpr) -> Option<f64> {
 /// config { foo: 1.0 + 2.0 }                  // Kernel call
 /// config { bar: const.base_value }           // Reference
 /// ```
+/// Compile era transition conditions into a runtime `TransitionFn`.
+///
+/// Each transition has a target era and a boolean condition (already typed and
+/// compiled by the pipeline). This function compiles each condition into bytecode
+/// and builds a closure that evaluates them in declaration order, returning the
+/// first matching target.
+///
+/// # Parameters
+/// - `transitions`: Typed transition declarations from the resolved era
+/// - `dt`: The era's time step (needed for kernel evaluation context)
+///
+/// # Returns
+/// A `TransitionFn` closure that evaluates all transition conditions and returns
+/// `Some(target_era)` for the first condition that evaluates to `true`.
+///
+/// # Panics
+/// Panics if a transition condition fails to compile to bytecode (indicates a
+/// compiler bug — the type checker should have already validated the expression).
+fn compile_era_transitions(
+    transitions: &[continuum_cdsl::ast::EraTransition],
+    dt: Dt,
+) -> crate::executor::TransitionFn {
+    use crate::bytecode::Compiler;
+    use continuum_cdsl::ast::{Execution, ExecutionBody};
+
+    let mut compiler = Compiler::new();
+    let mut compiled_transitions: Vec<(EraId, CompiledBlock)> = Vec::new();
+
+    for transition in transitions {
+        // Wrap the condition TypedExpr in a synthetic Execution block
+        let synthetic_execution = Execution {
+            name: format!("transition_to_{}", transition.target.as_str()),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Expr(transition.condition.clone()),
+            reads: Vec::new(),
+            temporal_reads: Vec::new(),
+            emits: Vec::new(),
+            span: transition.span,
+        };
+
+        let compiled_block = compiler
+            .compile_execution(&synthetic_execution)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to compile transition condition to '{}': {:?}. \
+                 This is a compiler bug — the type checker should have validated the expression.",
+                    transition.target.as_str(),
+                    e
+                )
+            });
+
+        let target = EraId::new(transition.target.as_str().to_string());
+        compiled_transitions.push((target, compiled_block));
+    }
+
+    // Move compiled blocks into an Arc so the closure can be Send + Sync
+    let compiled_transitions = std::sync::Arc::new(compiled_transitions);
+
+    Box::new(move |signals, _entities, _sim_time| {
+        use crate::bytecode::BytecodeExecutor;
+        use crate::executor::transition_context::TransitionEvalContext;
+
+        // Transition evaluation uses empty config/const maps since the conditions
+        // only reference signals (config/const are inlined during compilation).
+        // If a transition condition references config/const at runtime, the
+        // TransitionEvalContext will return an error.
+        let config_values = IndexMap::new();
+        let const_values = IndexMap::new();
+
+        for (target, block) in compiled_transitions.iter() {
+            let mut ctx = TransitionEvalContext::new(dt, signals, &config_values, &const_values);
+
+            let mut executor = BytecodeExecutor::new();
+            match executor.execute_block(block.root, &block.program, &mut ctx) {
+                Ok(Some(Value::Boolean(true))) => return Some(target.clone()),
+                Ok(Some(Value::Boolean(false))) | Ok(None) => continue,
+                Ok(Some(other)) => {
+                    tracing::error!(
+                        target_era = %target,
+                        value = ?other,
+                        "transition condition evaluated to non-boolean value"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        target_era = %target,
+                        error = %e,
+                        "transition condition evaluation failed"
+                    );
+                    continue;
+                }
+            }
+        }
+
+        None
+    })
+}
+
 fn evaluate_literal(expr: &continuum_cdsl::ast::Expr) -> Option<Value> {
     use continuum_cdsl::ast::UntypedKind;
     use continuum_cdsl::foundation::UnaryOp;

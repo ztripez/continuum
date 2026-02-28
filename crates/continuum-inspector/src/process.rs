@@ -60,19 +60,47 @@ pub async fn spawn_simulation<S: ProcessSpawner>(
 
     // Wait for socket to exist (5 second timeout)
     if wait_for_condition(|| state.socket.exists(), 5000, "timeout").await.is_err() {
+        // Capture stderr before killing the process
+        let stderr_output = {
+            let mut guard = state.child.lock().await;
+            if let Some(ref mut child) = *guard {
+                if let Some(stderr) = child.stderr.take() {
+                    use tokio::io::AsyncReadExt;
+                    let mut buf = Vec::new();
+                    let mut reader = tokio::io::BufReader::new(stderr);
+                    // Read available stderr (don't block indefinitely)
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(1),
+                        reader.read_to_end(&mut buf),
+                    ).await;
+                    String::from_utf8_lossy(&buf).to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        };
+
+        if !stderr_output.is_empty() {
+            error!("continuum-run stderr: {stderr_output}");
+        }
+
         // Kill the process since it failed to create socket
         if let Err(kill_err) = kill_simulation(state).await {
             error!("Failed to kill unresponsive process: {kill_err}");
             return Err(format!(
                 "Timeout waiting for continuum-run to create socket at {} AND failed to kill process: {kill_err}. \
-                 Check for zombie processes.",
-                state.socket.display()
+                 Check for zombie processes.{}",
+                state.socket.display(),
+                if stderr_output.is_empty() { String::new() } else { format!("\nProcess stderr:\n{stderr_output}") }
             ));
         }
         return Err(format!(
             "Timeout waiting for continuum-run to create socket at {}. \
-             Process may have failed to start - check process logs.",
-            state.socket.display()
+             Process may have failed to start.{}",
+            state.socket.display(),
+            if stderr_output.is_empty() { String::new() } else { format!("\nProcess stderr:\n{stderr_output}") }
         ));
     }
 

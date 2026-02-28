@@ -97,8 +97,7 @@ fn test_runtime_panics_on_non_literal_dt() {
 }
 
 #[test]
-#[should_panic(expected = "declares transitions")]
-fn test_runtime_panics_on_transitions() {
+fn test_runtime_compiles_transitions() {
     let span = Span::new(0, 0, 0, 0);
     let mut world = empty_world();
     world.initial_era = Some(EraId::new("main"));
@@ -111,22 +110,35 @@ fn test_runtime_panics_on_transitions() {
         Type::kernel(Shape::Scalar, Unit::seconds(), None),
         span,
     );
+
+    // A Bool literal condition — always true
     let condition = TypedExpr::new(
-        continuum_cdsl::ast::ExprKind::Literal {
-            value: 1.0,
-            unit: None,
-        },
+        continuum_cdsl::ast::ExprKind::BoolLiteral(true),
         Type::Bool,
         span,
     );
-    let mut era =
-        continuum_cdsl::ast::Era::new(EraId::new("main"), Path::from_path_str("main"), dt, span);
-    era.transitions
+
+    let mut era_main = continuum_cdsl::ast::Era::new(
+        EraId::new("main"),
+        Path::from_path_str("main"),
+        dt.clone(),
+        span,
+    );
+    era_main
+        .transitions
         .push(EraTransition::new(EraId::new("next"), condition, span));
-    world.eras.insert(Path::from_path_str("main"), era);
+    world.eras.insert(Path::from_path_str("main"), era_main);
+
+    // Add the target era so it's a valid transition
+    let era_next =
+        continuum_cdsl::ast::Era::new(EraId::new("next"), Path::from_path_str("next"), dt, span);
+    world.eras.insert(Path::from_path_str("next"), era_next);
 
     let compiled = CompiledWorld::new(world, Default::default());
-    let _runtime = build_runtime(compiled, None);
+    let runtime = build_runtime(compiled, None);
+
+    // The runtime should start in "main" era
+    assert_eq!(runtime.era(), &EraId::new("main"));
 }
 
 // ========== Scenario Config Override Validation Tests ==========

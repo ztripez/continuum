@@ -86,7 +86,7 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
     if (!warmupComplete) {
       setSimStatus('warmup');
     }
-    ws.sendRequest('step', { count: 1 })
+    ws.sendRequest('run.step', { steps: 1 })
       .then((payload: any) => {
         setWarmupComplete(payload.warmup_complete ?? true);
         setSimStatus('stopped');

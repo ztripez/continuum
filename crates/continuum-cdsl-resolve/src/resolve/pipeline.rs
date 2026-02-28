@@ -353,6 +353,81 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
             });
         }
 
+        // Type-check and compile transition conditions
+        for transition_decl in &era_decl.transitions {
+            let mut typed_conditions: Vec<continuum_cdsl_ast::TypedExpr> = Vec::new();
+            let mut transition_failed = false;
+
+            for cond_expr in &transition_decl.conditions {
+                match type_expression(
+                    cond_expr,
+                    &ctx,
+                    Some(&continuum_cdsl_ast::foundation::Type::Bool),
+                ) {
+                    Ok(typed) => typed_conditions.push(typed),
+                    Err(mut e) => {
+                        errors.append(&mut e);
+                        transition_failed = true;
+                    }
+                }
+            }
+
+            if transition_failed || typed_conditions.is_empty() {
+                if typed_conditions.is_empty() && !transition_failed {
+                    errors.push(CompileError::new(
+                        crate::error::ErrorKind::Internal,
+                        transition_decl.span,
+                        format!(
+                            "era '{}' transition to '{}' has no conditions",
+                            era_decl.path, transition_decl.target
+                        ),
+                    ));
+                }
+                continue;
+            }
+
+            // AND all conditions into a single Bool-typed expression
+            let combined = if typed_conditions.len() == 1 {
+                typed_conditions
+                    .into_iter()
+                    .next()
+                    .expect("checked len == 1")
+            } else {
+                typed_conditions
+                    .into_iter()
+                    .reduce(|acc, cond| {
+                        let span = cond.span;
+                        continuum_cdsl_ast::TypedExpr {
+                            expr: continuum_cdsl_ast::ExprKind::Call {
+                                kernel: continuum_kernel_types::KernelId::new("logic", "and"),
+                                args: vec![acc, cond],
+                            },
+                            ty: continuum_cdsl_ast::foundation::Type::Bool,
+                            span,
+                        }
+                    })
+                    .expect("reduce on non-empty iterator cannot return None")
+            };
+
+            // Resolve qualified path (e.g., "era.active_tectonics" → "active_tectonics")
+            let target_name = transition_decl
+                .target
+                .last()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "transition target path '{}' has no segments",
+                        transition_decl.target
+                    )
+                })
+                .to_string();
+            let target_era_id = continuum_cdsl_ast::foundation::EraId::new(target_name);
+            era.transitions.push(continuum_cdsl_ast::EraTransition::new(
+                target_era_id,
+                combined,
+                transition_decl.span,
+            ));
+        }
+
         resolved_eras.insert(era.path.clone(), era);
     }
 

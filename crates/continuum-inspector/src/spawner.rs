@@ -49,7 +49,8 @@ impl ProcessSpawner for RealProcessSpawner {
             cmd.arg("--scenario").arg(scenario_name);
         }
 
-        cmd.spawn()
+        cmd.stderr(std::process::Stdio::piped())
+            .spawn()
             .map_err(|e| format!("Failed to spawn continuum-run: {e}"))
     }
 }
