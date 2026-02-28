@@ -150,7 +150,7 @@ pub struct WorldDecl {
 
     /// Raw warmup attributes from world declaration
     ///
-    /// Semantic analysis validates these and builds a WarmupPolicy.
+    /// Semantic analysis validates these and builds a [`WarmUpPolicy`](crate::WarmUpPolicy).
     /// Parser preserves raw syntax; analyzer validates and interprets.
     pub warmup: Option<RawWarmupPolicy>,
 
@@ -177,43 +177,11 @@ pub struct WorldDecl {
     pub policy: WorldPolicy,
 }
 
-/// Warmup policy for iterative equilibration.
-///
-/// Per compiler manifesto, this must use expression-based convergence
-/// predicate, not a simple float threshold.
-///
-/// **Parser/Semantic Boundary Issue:** This is currently built by the parser
-/// from raw attributes. Should be moved to semantic analysis phase.
-/// Fields are Optional to avoid silent defaults when attributes are missing/invalid.
-/// Semantic analysis validates required fields and applies proper defaults.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WarmupPolicy {
-    /// Expression that evaluates to true when converged.
-    ///
-    /// Example: `maths.max_delta(signals) < 1e-6`
-    /// This is a typed expression, not a constant.
-    /// None if `:converged(...)` attribute is missing or invalid.
-    pub converged: Option<Expr>,
-
-    /// Maximum iterations before timeout.
-    ///
-    /// None if `:max_iterations(...)` attribute is missing or invalid.
-    pub max_iterations: Option<u32>,
-
-    /// Behavior on timeout.
-    ///
-    /// None if `:on_timeout(...)` attribute is missing or invalid.
-    pub on_timeout: Option<WarmupTimeout>,
-
-    /// Source location
-    pub span: Span,
-}
-
 /// Raw warmup attributes from world declaration.
 ///
 /// Parser extracts these from `world { warmup { :attr(...) } }` blocks
 /// and stores them as raw attributes for semantic analysis to validate
-/// and convert to WarmupPolicy.
+/// and convert to [`WarmUpPolicy`](crate::WarmUpPolicy).
 ///
 /// This preserves the parser/semantic boundary: parser handles syntax,
 /// semantic analysis validates and interprets.
@@ -224,17 +192,6 @@ pub struct RawWarmupPolicy {
 
     /// Source location
     pub span: Span,
-}
-
-/// Behavior when warmup times out without converging.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum WarmupTimeout {
-    /// Emit error diagnostic and abort compilation
-    #[default]
-    Fail,
-
-    /// Continue with unconverged state (emit warning)
-    Continue,
 }
 
 /// Const entry with full metadata.
