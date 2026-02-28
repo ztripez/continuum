@@ -16,9 +16,8 @@ export function App() {
   const [assertionCount, setAssertionCount] = useState(0);
   const [isImpulseModalOpen, setIsImpulseModalOpen] = useState(false);
 
-  const handleSimulationChange = () => {
-    // Reconnect WebSocket if needed
-    window.location.reload();
+  const handleTickUpdate = (info: Partial<TickEvent>) => {
+    setTickInfo(prev => prev ? { ...prev, ...info } : info as TickEvent);
   };
 
   // Subscribe to tick events and fetch initial status
@@ -67,7 +66,7 @@ export function App() {
         tickInfo={tickInfo} 
         ws={ws} 
         hasErrors={assertionCount > 0}
-        onSimulationChange={handleSimulationChange}
+        onTickUpdate={handleTickUpdate}
       />
       <div class="main-layout">
         <TabPanel 

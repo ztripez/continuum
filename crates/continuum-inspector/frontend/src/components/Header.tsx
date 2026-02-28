@@ -8,12 +8,12 @@ interface HeaderProps {
   tickInfo: TickEvent | null;
   ws: any;
   hasErrors: boolean;
-  onSimulationChange?: () => void;
+  onTickUpdate?: (info: Partial<TickEvent>) => void;
 }
 
 type SimStatus = 'stopped' | 'running' | 'paused' | 'error' | 'warmup';
 
-export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: HeaderProps) {
+export function Header({ status, tickInfo, ws, hasErrors, onTickUpdate }: HeaderProps) {
   const [showSimControl, setShowSimControl] = useState(false);
   const [simStatus, setSimStatus] = useState<SimStatus>('stopped');
   const [warmupComplete, setWarmupComplete] = useState<boolean>(true);
@@ -89,7 +89,16 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
     ws.sendRequest('run.step', { steps: 1 })
       .then((payload: any) => {
         setWarmupComplete(payload.warmup_complete ?? true);
-        setSimStatus('stopped');
+        const newStatus = (payload.execution_state as SimStatus) ?? 'stopped';
+        setSimStatus(newStatus);
+
+        // Propagate tick data to parent for header display
+        onTickUpdate?.({
+          tick: payload.tick,
+          sim_time: payload.sim_time,
+          era: payload.era,
+          execution_state: payload.execution_state,
+        });
       })
       .catch((err: any) => {
         setLastError(err.message || 'Step failed');
@@ -296,7 +305,6 @@ export function Header({ status, tickInfo, ws, hasErrors, onSimulationChange }: 
         <div class="sim-control-panel">
           <SimulationControl onSimulationChange={() => {
             setShowSimControl(false);
-            onSimulationChange?.();
           }} />
         </div>
       )}

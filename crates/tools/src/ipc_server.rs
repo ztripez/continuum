@@ -42,11 +42,14 @@ impl SimulationController {
         let compiled = intent.load()?;
         let runtime = build_runtime(compiled.clone(), None);
 
-        // Spawn simulation thread — it takes exclusive ownership of Runtime
-        let sim_thread = SimThread::spawn(runtime);
-        let sim = sim_thread.proxy().clone();
-
+        // Create broadcast channel for tick events — shared between sim thread
+        // and IPC server connections for real-time UI updates.
         let (event_tx, _) = broadcast::channel(1000);
+
+        // Spawn simulation thread — it takes exclusive ownership of Runtime
+        // and a clone of event_tx for emitting tick events during continuous execution.
+        let sim_thread = SimThread::spawn(runtime, Some(event_tx.clone()));
+        let sim = sim_thread.proxy().clone();
 
         Ok(Self {
             state: Arc::new(ServerState {
@@ -57,6 +60,7 @@ impl SimulationController {
                 ),
                 tick_rate: std::sync::atomic::AtomicU32::new(60),
                 last_error: parking_lot::RwLock::new(None),
+                event_tx: event_tx.clone(),
             }),
             router: Arc::new(RequestRouter::new()),
             event_tx,

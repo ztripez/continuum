@@ -5,10 +5,11 @@
 //! corresponding handler implementations.
 
 use crate::sim_proxy::SimProxy;
-use crate::world_api::{WorldRequest, WorldResponse};
+use crate::world_api::{WorldEvent, WorldRequest, WorldResponse};
 use continuum_cdsl::ast::CompiledWorld;
 use indexmap::IndexMap;
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use tokio::sync::broadcast;
 
 use crate::request_handler_impls::*;
 
@@ -114,6 +115,12 @@ pub struct ServerState {
 
     /// Last error message from the simulation thread.
     pub last_error: parking_lot::RwLock<Option<String>>,
+
+    /// Broadcast channel for pushing events to connected inspector clients.
+    ///
+    /// Handlers can use this to emit events (e.g., tick updates after step execution).
+    /// The sim thread also holds a clone for emitting events during continuous execution.
+    pub event_tx: broadcast::Sender<WorldEvent>,
 }
 
 /// Trait for handling specific IPC request types.

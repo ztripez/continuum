@@ -31,10 +31,12 @@
 //! via channel disconnection.
 
 use crate::sim_proxy::{ControlCommand, RestoreResult, SimCommand, SimProxy, SimStatus};
+use crate::world_api::WorldEvent;
 use continuum_runtime::Runtime;
 use crossbeam_channel as cbc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 /// Capacity of the control channel (small, high-priority).
@@ -68,7 +70,11 @@ impl SimThread {
     ///
     /// Returns a `SimThread` handle containing a cloneable [`SimProxy`] for
     /// sending commands to the thread.
-    pub fn spawn(runtime: Runtime) -> Self {
+    ///
+    /// If `event_tx` is provided, the thread emits [`WorldEvent`] messages
+    /// after each tick execution. This powers real-time UI updates in the
+    /// inspector without polling.
+    pub fn spawn(runtime: Runtime, event_tx: Option<broadcast::Sender<WorldEvent>>) -> Self {
         let (control_tx, control_rx) = cbc::bounded(CONTROL_CHANNEL_CAP);
         let (cmd_tx, cmd_rx) = cbc::bounded(COMMAND_CHANNEL_CAP);
 
@@ -76,7 +82,7 @@ impl SimThread {
 
         let handle = thread::Builder::new()
             .name("sim-thread".to_string())
-            .spawn(move || sim_thread_main(runtime, control_rx, cmd_rx))
+            .spawn(move || sim_thread_main(runtime, control_rx, cmd_rx, event_tx))
             .expect("failed to spawn simulation thread");
 
         Self {
@@ -135,6 +141,7 @@ fn sim_thread_main(
     mut runtime: Runtime,
     control_rx: cbc::Receiver<ControlCommand>,
     cmd_rx: cbc::Receiver<SimCommand>,
+    event_tx: Option<broadcast::Sender<WorldEvent>>,
 ) -> Runtime {
     info!("Simulation thread started");
 
@@ -165,12 +172,13 @@ fn sim_thread_main(
                 }
 
                 // Drain all pending commands before ticking
-                drain_commands(&cmd_rx, &mut runtime);
+                drain_commands(&cmd_rx, &mut runtime, &event_tx);
 
                 // Execute tick
                 match runtime.execute_tick() {
-                    Ok(_tick_ctx) => {
+                    Ok(tick_ctx) => {
                         debug!(tick = runtime.tick(), "Tick executed");
+                        emit_tick_event(&event_tx, &tick_ctx, &runtime, "running");
                     }
                     Err(e) => {
                         error!(tick = runtime.tick(), error = %e, "Tick execution failed");
@@ -226,7 +234,7 @@ fn sim_thread_main(
                     }
                     recv(cmd_rx) -> msg => {
                         match msg {
-                            Ok(cmd) => handle_sim_cmd(cmd, &mut runtime),
+                            Ok(cmd) => handle_sim_cmd(cmd, &mut runtime, &event_tx),
                             Err(cbc::RecvError) => {
                                 info!("Command channel disconnected, shutting down");
                                 break;
@@ -318,15 +326,23 @@ fn handle_control_cmd(cmd: ControlCommand, state: &mut RunState, tick_rate: &mut
 // ============================================================================
 
 /// Drain all pending simulation commands (non-blocking).
-fn drain_commands(cmd_rx: &cbc::Receiver<SimCommand>, runtime: &mut Runtime) {
+fn drain_commands(
+    cmd_rx: &cbc::Receiver<SimCommand>,
+    runtime: &mut Runtime,
+    event_tx: &Option<broadcast::Sender<WorldEvent>>,
+) {
     while let Ok(cmd) = cmd_rx.try_recv() {
-        handle_sim_cmd(cmd, runtime);
+        handle_sim_cmd(cmd, runtime, event_tx);
     }
 }
 
 /// Handle a single simulation command by dispatching to the runtime
 /// and sending the reply.
-fn handle_sim_cmd(cmd: SimCommand, runtime: &mut Runtime) {
+fn handle_sim_cmd(
+    cmd: SimCommand,
+    runtime: &mut Runtime,
+    event_tx: &Option<broadcast::Sender<WorldEvent>>,
+) {
     match cmd {
         SimCommand::GetStatus { reply } => {
             let status = SimStatus {
@@ -348,7 +364,10 @@ fn handle_sim_cmd(cmd: SimCommand, runtime: &mut Runtime) {
 
             for _ in 0..count {
                 match runtime.execute_tick() {
-                    Ok(ctx) => last_ctx = Some(ctx),
+                    Ok(ctx) => {
+                        emit_tick_event(event_tx, &ctx, runtime, "stopped");
+                        last_ctx = Some(ctx);
+                    }
                     Err(e) => {
                         error = Some(e.to_string());
                         break;
@@ -392,6 +411,39 @@ fn handle_sim_cmd(cmd: SimCommand, runtime: &mut Runtime) {
             let _ = reply.send(failures);
         }
     }
+}
+
+// ============================================================================
+// Event Emission
+// ============================================================================
+
+/// Emit a tick event to connected inspector clients.
+///
+/// Constructs a `WorldEvent { kind: "tick" }` from the tick context and
+/// runtime state, and sends it via the broadcast channel. Receivers that
+/// have lagged or disconnected are silently ignored — tick events are
+/// best-effort delivery for UI updates.
+fn emit_tick_event(
+    event_tx: &Option<broadcast::Sender<WorldEvent>>,
+    tick_ctx: &continuum_runtime::TickContext,
+    runtime: &Runtime,
+    execution_state: &str,
+) {
+    let Some(tx) = event_tx else { return };
+
+    let event = WorldEvent {
+        kind: "tick".to_string(),
+        payload: serde_json::json!({
+            "tick": runtime.tick(),
+            "sim_time": tick_ctx.sim_time,
+            "era": tick_ctx.era.to_string(),
+            "execution_state": execution_state,
+            "warmup_complete": runtime.is_warmup_complete(),
+        }),
+    };
+
+    // Best-effort: ignore send errors (no receivers, lagged, etc.)
+    let _ = tx.send(event);
 }
 
 // ============================================================================
@@ -486,7 +538,7 @@ mod tests {
         let runtime = test_runtime();
         let initial_tick = runtime.tick();
 
-        let sim = SimThread::spawn(runtime);
+        let sim = SimThread::spawn(runtime, None);
         let proxy = sim.proxy().clone();
 
         // Query status while idle
@@ -501,7 +553,7 @@ mod tests {
     #[test]
     fn test_execute_steps() {
         let runtime = test_runtime();
-        let sim = SimThread::spawn(runtime);
+        let sim = SimThread::spawn(runtime, None);
         let proxy = sim.proxy().clone();
 
         // Execute 5 ticks via command
@@ -522,7 +574,7 @@ mod tests {
     #[test]
     fn test_run_pause_resume_stop() {
         let runtime = test_runtime();
-        let sim = SimThread::spawn(runtime);
+        let sim = SimThread::spawn(runtime, None);
         let proxy = sim.proxy().clone();
 
         // Start running at 1000 ticks/sec
@@ -562,9 +614,92 @@ mod tests {
     }
 
     #[test]
+    fn test_tick_events_emitted_on_steps() {
+        let runtime = test_runtime();
+        let (event_tx, mut event_rx) = broadcast::channel(100);
+
+        let sim = SimThread::spawn(runtime, Some(event_tx));
+        let proxy = sim.proxy().clone();
+
+        // Execute 3 ticks — should emit 3 tick events
+        let result = proxy.execute_steps(3).expect("execute_steps failed");
+        assert!(result.is_ok(), "tick execution failed");
+
+        // Drain events — we should have received 3
+        let mut events = Vec::new();
+        while let Ok(event) = event_rx.try_recv() {
+            events.push(event);
+        }
+        assert_eq!(
+            events.len(),
+            3,
+            "expected 3 tick events, got {}",
+            events.len()
+        );
+
+        // Verify event structure
+        for event in &events {
+            assert_eq!(event.kind, "tick");
+            assert!(event.payload.get("tick").is_some());
+            assert!(event.payload.get("sim_time").is_some());
+            assert!(event.payload.get("era").is_some());
+            assert_eq!(
+                event
+                    .payload
+                    .get("execution_state")
+                    .and_then(|v| v.as_str()),
+                Some("stopped")
+            );
+        }
+
+        let _runtime = sim.stop_and_join().expect("stop failed");
+    }
+
+    #[test]
+    fn test_tick_events_emitted_on_run() {
+        let runtime = test_runtime();
+        let (event_tx, mut event_rx) = broadcast::channel(1000);
+
+        let sim = SimThread::spawn(runtime, Some(event_tx));
+        let proxy = sim.proxy().clone();
+
+        // Start running at high rate
+        proxy.run(1000).expect("run failed");
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Pause to stop ticking
+        proxy.pause().expect("pause failed");
+        std::thread::sleep(Duration::from_millis(20));
+
+        // Should have received tick events during the run
+        let mut events = Vec::new();
+        while let Ok(event) = event_rx.try_recv() {
+            events.push(event);
+        }
+        assert!(
+            !events.is_empty(),
+            "expected tick events during continuous run"
+        );
+
+        // All events should report "running" execution state
+        for event in &events {
+            assert_eq!(event.kind, "tick");
+            assert_eq!(
+                event
+                    .payload
+                    .get("execution_state")
+                    .and_then(|v| v.as_str()),
+                Some("running")
+            );
+        }
+
+        let _runtime = sim.stop_and_join().expect("stop failed");
+    }
+
+    #[test]
     fn test_drop_stops_thread() {
         let runtime = test_runtime();
-        let sim = SimThread::spawn(runtime);
+        let sim = SimThread::spawn(runtime, None);
         let proxy = sim.proxy().clone();
 
         proxy.run(100).expect("run failed");

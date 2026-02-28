@@ -138,9 +138,18 @@ impl RequestHandler for RunStepHandler {
 
         match result {
             Ok(tick_ctx) => {
+                let exec_state_str = match state.execution_state.load() {
+                    ExecutionState::Stopped => "stopped",
+                    ExecutionState::Running => "running",
+                    ExecutionState::Paused => "paused",
+                    ExecutionState::Error => "error",
+                };
+
                 match serde_json::to_value(serde_json::json!({
                     "tick": tick_ctx.tick + 1, // Report post-increment tick to match old API
                     "sim_time": tick_ctx.sim_time,
+                    "era": tick_ctx.era.to_string(),
+                    "execution_state": exec_state_str,
                 })) {
                     Ok(payload) => WorldResponse {
                         id: req.id,

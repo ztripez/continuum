@@ -90,10 +90,10 @@ export interface TickEvent {
   tick: number;
   era: string;
   sim_time: number;
-  field_count: number;
-  event_count: number;
-  phase: string;
-  execution_state: 'stopped' | 'running' | 'paused' | 'error'; // Always present from backend
+  field_count?: number;
+  event_count?: number;
+  phase?: string;
+  execution_state?: 'stopped' | 'running' | 'paused' | 'error';
   tick_rate?: number;
   last_error?: string;
   warmup_complete?: boolean;
