@@ -4,15 +4,18 @@
 //! and [`RequestRouter`] which maps IPC request kind strings to their
 //! corresponding handler implementations.
 
+use crate::sim_proxy::SimProxy;
 use crate::world_api::{WorldRequest, WorldResponse};
 use continuum_cdsl::ast::CompiledWorld;
-use continuum_runtime::Runtime;
 use indexmap::IndexMap;
-use std::sync::{atomic::AtomicU32, Mutex, RwLock};
+use std::sync::atomic::AtomicU32;
 
 use crate::request_handler_impls::*;
 
-/// Execution state of the simulation.
+/// Execution state of the simulation, as observed by the IPC layer.
+///
+/// This is the IPC server's view of state — the authoritative state lives
+/// inside the simulation thread. This mirror is updated by control handlers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionState {
     Stopped,
@@ -22,12 +25,25 @@ pub enum ExecutionState {
 }
 
 /// Shared state for request handlers.
+///
+/// The `compiled` world provides read-only access to the world schema.
+/// The `sim` proxy sends commands to the simulation thread which owns
+/// the `Runtime` exclusively — no locks needed for runtime access.
 pub struct ServerState {
+    /// Compiled world schema (signals, fields, entities, etc.).
     pub compiled: CompiledWorld,
-    pub runtime: Mutex<Runtime>,
-    pub execution_state: RwLock<ExecutionState>,
-    pub tick_rate: AtomicU32, // ticks per second (0 = unlimited)
-    pub last_error: RwLock<Option<String>>,
+
+    /// Proxy to the simulation thread that owns Runtime exclusively.
+    pub sim: SimProxy,
+
+    /// Observed execution state (mirrors the sim thread's internal state).
+    pub execution_state: parking_lot::RwLock<ExecutionState>,
+
+    /// Tick rate in ticks per second (0 = unlimited).
+    pub tick_rate: AtomicU32,
+
+    /// Last error message from the simulation thread.
+    pub last_error: parking_lot::RwLock<Option<String>>,
 }
 
 /// Trait for handling specific IPC request types.

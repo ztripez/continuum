@@ -2,6 +2,10 @@
 //!
 //! Each handler implements the `RequestHandler` trait, mapping an IPC request
 //! kind string to a function that queries engine state and returns a response.
+//!
+//! Handlers that need runtime data use [`SimProxy`] to send commands to
+//! the simulation thread. The proxy methods block on crossbeam channel replies,
+//! which is fine because handlers run on `spawn_blocking` threads.
 
 use crate::ipc_types::{AssertionInfo, FieldInfo, ImpulseInfo, SignalInfo};
 use crate::world_api::{WorldRequest, WorldResponse};
@@ -46,17 +50,24 @@ impl RequestHandler for StatusHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        let rt = state
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned - fatal error");
-        let tick = rt.tick();
-        let sim_time = rt.sim_time();
-        let era = rt.era();
+        // Query runtime state via sim proxy
+        let sim_status = match state.sim.status() {
+            Ok(s) => s,
+            Err(_) => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Simulation thread disconnected".to_string()),
+                };
+            }
+        };
 
-        let execution_state = *state.execution_state.read().expect("rwlock poisoned");
-        let tick_rate = state.tick_rate.load(std::sync::atomic::Ordering::Relaxed);
-        let last_error = state.last_error.read().expect("rwlock poisoned").clone();
+        let execution_state = *state.execution_state.read();
+        let tick_rate = state
+            .tick_rate
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let last_error = state.last_error.read().clone();
 
         let exec_state_str = match execution_state {
             ExecutionState::Stopped => "stopped",
@@ -66,9 +77,9 @@ impl RequestHandler for StatusHandler {
         };
 
         match serde_json::to_value(serde_json::json!({
-            "tick": tick,
-            "sim_time": sim_time,
-            "era": era,
+            "tick": sim_status.tick,
+            "sim_time": sim_status.sim_time,
+            "era": sim_status.era.to_string(),
             "execution_state": exec_state_str,
             "tick_rate": tick_rate,
             "last_error": last_error,
@@ -113,39 +124,43 @@ impl RequestHandler for RunStepHandler {
             }
         };
 
-        let mut rt = state
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned - fatal error");
-        for _ in 0..steps {
-            if let Err(e) = rt.execute_tick() {
+        let result = match state.sim.execute_steps(steps) {
+            Ok(r) => r,
+            Err(_) => {
                 return WorldResponse {
                     id: req.id,
                     ok: false,
                     payload: None,
-                    error: Some(format!("Execution error: {}", e)),
+                    error: Some("Simulation thread disconnected".to_string()),
                 };
             }
-        }
+        };
 
-        let tick = rt.tick();
-        let sim_time = rt.sim_time();
-
-        match serde_json::to_value(serde_json::json!({
-            "tick": tick,
-            "sim_time": sim_time,
-        })) {
-            Ok(payload) => WorldResponse {
-                id: req.id,
-                ok: true,
-                payload: Some(payload),
-                error: None,
-            },
+        match result {
+            Ok(tick_ctx) => {
+                match serde_json::to_value(serde_json::json!({
+                    "tick": tick_ctx.tick + 1, // Report post-increment tick to match old API
+                    "sim_time": tick_ctx.sim_time,
+                })) {
+                    Ok(payload) => WorldResponse {
+                        id: req.id,
+                        ok: true,
+                        payload: Some(payload),
+                        error: None,
+                    },
+                    Err(e) => WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some(format!("Serialization error: {}", e)),
+                    },
+                }
+            }
             Err(e) => WorldResponse {
                 id: req.id,
                 ok: false,
                 payload: None,
-                error: Some(format!("Serialization error: {}", e)),
+                error: Some(format!("Execution error: {}", e)),
             },
         }
     }
@@ -159,24 +174,36 @@ impl RequestHandler for RunHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        // Set tick_rate if provided
-        if let Some(tick_rate) = req.payload.get("tick_rate").and_then(|v| v.as_u64()) {
-            state
-                .tick_rate
-                .store(tick_rate as u32, std::sync::atomic::Ordering::Relaxed);
+        // Read tick_rate from request or use current value
+        let tick_rate = req
+            .payload
+            .get("tick_rate")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+            .unwrap_or_else(|| {
+                state
+                    .tick_rate
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            });
+
+        // Store tick_rate for status queries
+        state
+            .tick_rate
+            .store(tick_rate, std::sync::atomic::Ordering::Relaxed);
+
+        // Send run command to simulation thread
+        if state.sim.run(tick_rate).is_err() {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some("Simulation thread disconnected".to_string()),
+            };
         }
 
-        // Transition state to Running
-        {
-            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
-            *exec_state = ExecutionState::Running;
-        }
-
-        // Clear any previous error
-        {
-            let mut last_error = state.last_error.write().expect("rwlock poisoned");
-            *last_error = None;
-        }
+        // Update observed state
+        *state.execution_state.write() = ExecutionState::Running;
+        *state.last_error.write() = None;
 
         WorldResponse {
             id: req.id,
@@ -195,11 +222,16 @@ impl RequestHandler for StopHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        // Transition state to Stopped
-        {
-            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
-            *exec_state = ExecutionState::Stopped;
+        if state.sim.stop().is_err() {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some("Simulation thread disconnected".to_string()),
+            };
         }
+
+        *state.execution_state.write() = ExecutionState::Stopped;
 
         WorldResponse {
             id: req.id,
@@ -218,21 +250,26 @@ impl RequestHandler for PauseHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        // Transition state to Paused
-        {
-            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
-            // Only allow pause from Running state
-            if *exec_state == ExecutionState::Running {
-                *exec_state = ExecutionState::Paused;
-            } else {
-                return WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some("Cannot pause: simulation not running".to_string()),
-                };
-            }
+        let current = *state.execution_state.read();
+        if current != ExecutionState::Running {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some("Cannot pause: simulation not running".to_string()),
+            };
         }
+
+        if state.sim.pause().is_err() {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some("Simulation thread disconnected".to_string()),
+            };
+        }
+
+        *state.execution_state.write() = ExecutionState::Paused;
 
         WorldResponse {
             id: req.id,
@@ -251,39 +288,40 @@ impl RequestHandler for ResumeHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        // Transition state from Paused/Error back to Running
-        {
-            let mut exec_state = state.execution_state.write().expect("rwlock poisoned");
-            match *exec_state {
-                ExecutionState::Paused | ExecutionState::Error => {
-                    *exec_state = ExecutionState::Running;
-                }
-                ExecutionState::Running => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some("Cannot resume: already running".to_string()),
-                    };
-                }
-                ExecutionState::Stopped => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some(
-                            "Cannot resume: simulation stopped (use 'run' instead)".to_string(),
-                        ),
-                    };
-                }
+        let current = *state.execution_state.read();
+        match current {
+            ExecutionState::Paused | ExecutionState::Error => {}
+            ExecutionState::Running => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Cannot resume: already running".to_string()),
+                };
+            }
+            ExecutionState::Stopped => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some(
+                        "Cannot resume: simulation stopped (use 'run' instead)".to_string(),
+                    ),
+                };
             }
         }
 
-        // Clear error if resuming from error state
-        {
-            let mut last_error = state.last_error.write().expect("rwlock poisoned");
-            *last_error = None;
+        if state.sim.resume().is_err() {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some("Simulation thread disconnected".to_string()),
+            };
         }
+
+        *state.execution_state.write() = ExecutionState::Running;
+        *state.last_error.write() = None;
 
         WorldResponse {
             id: req.id,
@@ -422,19 +460,26 @@ impl RequestHandler for SignalGetHandler {
             }
         };
 
-        let rt = state
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned - fatal error");
         let signal_path = continuum_runtime::types::SignalId::from(signal_id.to_string());
-        let value = match rt.get_signal(&signal_path) {
-            Some(v) => v,
-            None => {
+        let value = match state.sim.get_signal(signal_path) {
+            Ok(Some(v)) => v,
+            Ok(None) => {
                 return WorldResponse {
                     id: req.id,
                     ok: false,
                     payload: None,
-                    error: Some(format!("Signal not found or not resolved: {}", signal_id)),
+                    error: Some(format!(
+                        "Signal not found or not resolved: {}",
+                        signal_id
+                    )),
+                };
+            }
+            Err(_) => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Simulation thread disconnected".to_string()),
                 };
             }
         };
@@ -744,25 +789,32 @@ impl RequestHandler for ImpulseEmitHandler {
             }
         };
 
-        let mut rt = state
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned - fatal error");
         let impulse_path = continuum_runtime::types::ImpulseId::from(impulse_id.to_string());
-        if let Err(e) = rt.inject_impulse_by_id(&impulse_path, payload_value) {
-            return WorldResponse {
+        let result = match state.sim.inject_impulse(impulse_path, payload_value) {
+            Ok(r) => r,
+            Err(_) => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Simulation thread disconnected".to_string()),
+                };
+            }
+        };
+
+        match result {
+            Ok(()) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(serde_json::json!({ "injected": true })),
+                error: None,
+            },
+            Err(e) => WorldResponse {
                 id: req.id,
                 ok: false,
                 payload: None,
                 error: Some(format!("Failed to inject impulse: {}", e)),
-            };
-        }
-
-        WorldResponse {
-            id: req.id,
-            ok: true,
-            payload: Some(serde_json::json!({ "injected": true })),
-            error: None,
+            },
         }
     }
 }
@@ -822,11 +874,17 @@ impl RequestHandler for AssertionFailuresHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        let rt = state
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned - fatal error");
-        let failures = rt.assertion_checker().failures();
+        let failures = match state.sim.assertion_failures() {
+            Ok(f) => f,
+            Err(_) => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Simulation thread disconnected".to_string()),
+                };
+            }
+        };
 
         match serde_json::to_value(failures) {
             Ok(payload) => WorldResponse {
@@ -871,7 +929,7 @@ impl RequestHandler for CheckpointSaveHandler {
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
         // Must be stopped or paused to save
-        let exec_state = *state.execution_state.read().expect("rwlock poisoned");
+        let exec_state = *state.execution_state.read();
         if exec_state == ExecutionState::Running {
             return WorldResponse {
                 id: req.id,
@@ -881,31 +939,46 @@ impl RequestHandler for CheckpointSaveHandler {
             };
         }
 
-        let path = req
-            .payload
-            .get("path")
-            .and_then(|v| v.as_str())
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                let rt = state.runtime.lock().expect("runtime mutex poisoned");
+        let path = match req.payload.get("path").and_then(|v| v.as_str()) {
+            Some(p) => std::path::PathBuf::from(p),
+            None => {
+                // Need tick for default filename — query via proxy
+                let tick = state
+                    .sim
+                    .status()
+                    .map(|s| s.tick)
+                    .unwrap_or(0);
                 let world_name = &state.compiled.world.metadata.path;
-                default_checkpoint_path(&world_name.to_string(), rt.tick())
-            });
+                default_checkpoint_path(&world_name.to_string(), tick)
+            }
+        };
 
         // Ensure directory exists
         if let Some(parent) = path.parent()
-            && let Err(e) = std::fs::create_dir_all(parent) {
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            return WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Failed to create checkpoint directory: {}", e)),
+            };
+        }
+
+        // Request checkpoint via sim proxy
+        let result = match state.sim.request_checkpoint(path.clone()) {
+            Ok(r) => r,
+            Err(_) => {
                 return WorldResponse {
                     id: req.id,
                     ok: false,
                     payload: None,
-                    error: Some(format!("Failed to create checkpoint directory: {}", e)),
+                    error: Some("Simulation thread disconnected".to_string()),
                 };
             }
+        };
 
-        // Request checkpoint (uses runtime's checkpoint writer)
-        let rt = state.runtime.lock().expect("runtime mutex poisoned");
-        match rt.request_checkpoint(&path) {
+        match result {
             Ok(()) => WorldResponse {
                 id: req.id,
                 ok: true,
@@ -934,7 +1007,7 @@ impl RequestHandler for CheckpointLoadHandler {
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
         // Must be stopped to load
-        let exec_state = *state.execution_state.read().expect("rwlock poisoned");
+        let exec_state = *state.execution_state.read();
         if exec_state != ExecutionState::Stopped {
             return WorldResponse {
                 id: req.id,
@@ -969,16 +1042,27 @@ impl RequestHandler for CheckpointLoadHandler {
             }
         };
 
-        // Restore into runtime
-        let mut rt = state.runtime.lock().expect("runtime mutex poisoned");
-        match rt.restore_from_checkpoint(checkpoint) {
-            Ok(()) => WorldResponse {
+        // Restore via sim proxy
+        let result = match state.sim.restore_checkpoint(checkpoint) {
+            Ok(r) => r,
+            Err(_) => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Simulation thread disconnected".to_string()),
+                };
+            }
+        };
+
+        match result {
+            Ok(restore) => WorldResponse {
                 id: req.id,
                 ok: true,
                 payload: Some(serde_json::json!({
-                    "tick": rt.tick(),
-                    "sim_time": rt.sim_time(),
-                    "era": rt.era().to_string(),
+                    "tick": restore.tick,
+                    "sim_time": restore.sim_time,
+                    "era": restore.era.to_string(),
                     "message": "Checkpoint loaded successfully"
                 })),
                 error: None,
@@ -1018,15 +1102,16 @@ impl RequestHandler for CheckpointListHandler {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|ext| ext == "ckpt")
-                    && let Ok(metadata) = entry.metadata() {
-                        checkpoints.push(serde_json::json!({
-                            "path": path.display().to_string(),
-                            "size": metadata.len(),
-                            "modified": metadata.modified().ok().and_then(|t| {
-                                t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
-                            }),
-                        }));
-                    }
+                    && let Ok(metadata) = entry.metadata()
+                {
+                    checkpoints.push(serde_json::json!({
+                        "path": path.display().to_string(),
+                        "size": metadata.len(),
+                        "modified": metadata.modified().ok().and_then(|t| {
+                            t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+                        }),
+                    }));
+                }
             }
         }
 
