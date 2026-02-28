@@ -10,7 +10,6 @@
 //! (tick/phase stepping) distinct from orchestration concerns (loops, I/O,
 //! checkpoint scheduling).
 
-use crate::error::{Error, Result};
 use crate::lens_sink::{LensData, LensSink};
 use crate::types::SignalId;
 use std::path::PathBuf;
@@ -150,33 +149,18 @@ pub fn run_simulation(
                     .checkpoint_dir
                     .join(format!("checkpoint_{:010}.ckpt", runtime.tick()));
 
+                // Symlink and prune are handled by the background checkpoint
+                // writer thread after the checkpoint is written to disk.
+                let latest_link = Some(checkpoint.checkpoint_dir.join("latest"));
+                let keep_last_n = checkpoint
+                    .keep_last_n
+                    .map(|n| (checkpoint.checkpoint_dir.clone(), n));
+
                 runtime
-                    .request_checkpoint(&checkpoint_path)
+                    .request_checkpoint_with_maintenance(&checkpoint_path, latest_link, keep_last_n)
                     .map_err(|e| RunError::Execution(e.to_string()))?;
                 debug!("Checkpoint requested for tick {}", runtime.tick());
                 last_checkpoint_time = std::time::Instant::now();
-
-                // Update 'latest' symlink
-                let latest_link = checkpoint.checkpoint_dir.join("latest");
-                if let Err(err) = std::fs::remove_file(&latest_link)
-                    && err.kind() != std::io::ErrorKind::NotFound {
-                        return Err(RunError::Execution(err.to_string()));
-                    }
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::symlink;
-                    symlink(
-                        format!("checkpoint_{:010}.ckpt", runtime.tick()),
-                        &latest_link,
-                    )
-                    .map_err(|e| RunError::Execution(e.to_string()))?;
-                }
-
-                // Prune old checkpoints if configured
-                if let Some(keep_n) = checkpoint.keep_last_n {
-                    prune_old_checkpoints(&checkpoint.checkpoint_dir, keep_n)
-                        .map_err(|e| RunError::Execution(e.to_string()))?;
-                }
             }
         }
     }
@@ -188,44 +172,4 @@ pub fn run_simulation(
     }
 
     Ok(RunReport { run_dir })
-}
-
-/// Prune old checkpoints, keeping only the last N.
-fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) -> Result<()> {
-    let entries =
-        std::fs::read_dir(checkpoint_dir).map_err(|e| Error::Checkpoint(e.to_string()))?;
-
-    let mut checkpoints = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| Error::Checkpoint(e.to_string()))?;
-        let path = entry.path();
-        let extension = match path.extension() {
-            Some(ext) => ext,
-            None => continue,
-        };
-        let extension_str = extension.to_str().ok_or_else(|| {
-            Error::Checkpoint(format!(
-                "Checkpoint entry '{}' has non-UTF8 extension",
-                path.display()
-            ))
-        })?;
-        if extension_str == "ckpt" {
-            checkpoints.push(entry);
-        }
-    }
-
-    if checkpoints.len() <= keep_n {
-        return Ok(());
-    }
-
-    // Sort by filename (which includes tick number)
-    checkpoints.sort_by_key(|entry| entry.file_name());
-
-    // Remove oldest checkpoints
-    let to_remove = checkpoints.len() - keep_n;
-    for entry in checkpoints.iter().take(to_remove) {
-        std::fs::remove_file(entry.path()).map_err(|e| Error::Checkpoint(e.to_string()))?;
-        debug!("Pruned old checkpoint: {}", entry.path().display());
-    }
-    Ok(())
 }

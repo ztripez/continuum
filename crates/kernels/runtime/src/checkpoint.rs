@@ -190,6 +190,10 @@ struct CheckpointJob {
     path: PathBuf,
     checkpoint: Checkpoint,
     compression_level: i32,
+    /// If set, create/update a "latest" symlink pointing to this checkpoint.
+    latest_link: Option<PathBuf>,
+    /// If set, prune old checkpoints keeping only this many.
+    keep_last_n: Option<(PathBuf, usize)>,
 }
 
 /// Non-blocking checkpoint writer with bounded queue.
@@ -216,11 +220,16 @@ impl CheckpointWriter {
     ///
     /// If the queue is full, returns an error and drops the checkpoint.
     /// The simulation should continue without interruption.
+    ///
+    /// Optionally updates a "latest" symlink and prunes old checkpoints
+    /// after the write completes — all on the background thread.
     pub fn request_checkpoint(
         &self,
         path: PathBuf,
         checkpoint: Checkpoint,
         compression_level: i32,
+        latest_link: Option<PathBuf>,
+        keep_last_n: Option<(PathBuf, usize)>,
     ) -> Result<(), CheckpointError> {
         let tx = self.tx.as_ref().ok_or(CheckpointError::WriterDied)?;
 
@@ -228,6 +237,8 @@ impl CheckpointWriter {
             path,
             checkpoint,
             compression_level,
+            latest_link,
+            keep_last_n,
         };
 
         match tx.try_send(job) {
@@ -272,19 +283,65 @@ fn spawn_writer_thread(rx: Receiver<CheckpointJob>) -> JoinHandle<()> {
             info!("Checkpoint writer thread started");
 
             while let Ok(job) = rx.recv() {
+                let tick = job.checkpoint.header.tick;
+
                 if let Err(e) = write_checkpoint(&job.path, &job.checkpoint, job.compression_level)
                 {
                     error!(
                         path = %job.path.display(),
-                        tick = job.checkpoint.header.tick,
+                        tick,
                         error = %e,
                         "Failed to write checkpoint"
                     );
-                } else {
-                    info!(
-                        path = %job.path.display(),
-                        tick = job.checkpoint.header.tick,
-                        "Checkpoint written successfully"
+                    // Skip symlink/prune if the write itself failed
+                    continue;
+                }
+
+                info!(
+                    path = %job.path.display(),
+                    tick,
+                    "Checkpoint written successfully"
+                );
+
+                // Update "latest" symlink (best-effort, non-fatal)
+                if let Some(latest_link) = job.latest_link
+                    && let Some(checkpoint_filename) = job.path.file_name()
+                {
+                    // Remove existing symlink/file
+                    match std::fs::remove_file(&latest_link) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => {
+                            warn!(
+                                path = %latest_link.display(),
+                                error = %e,
+                                "Failed to remove old latest symlink"
+                            );
+                        }
+                    }
+
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::symlink;
+                        if let Err(e) = symlink(checkpoint_filename, &latest_link) {
+                            warn!(
+                                path = %latest_link.display(),
+                                error = %e,
+                                "Failed to create latest symlink"
+                            );
+                        }
+                    }
+                }
+
+                // Prune old checkpoints (best-effort, non-fatal)
+                if let Some((checkpoint_dir, keep_n)) = job.keep_last_n
+                    && let Err(e) = prune_old_checkpoints(&checkpoint_dir, keep_n)
+                {
+                    warn!(
+                        dir = %checkpoint_dir.display(),
+                        keep_n,
+                        error = %e,
+                        "Failed to prune old checkpoints"
                     );
                 }
             }
@@ -364,6 +421,52 @@ pub fn load_checkpoint(path: &Path) -> Result<Checkpoint, CheckpointError> {
     );
 
     Ok(checkpoint)
+}
+
+// ============================================================================
+// Checkpoint Pruning
+// ============================================================================
+
+/// Prune old checkpoints, keeping only the last `keep_n`.
+///
+/// Lists all `.ckpt` files in `checkpoint_dir`, sorts by filename
+/// (which embeds the tick number), and removes the oldest entries
+/// beyond the retention limit.
+fn prune_old_checkpoints(
+    checkpoint_dir: &std::path::Path,
+    keep_n: usize,
+) -> std::result::Result<(), CheckpointError> {
+    let entries =
+        std::fs::read_dir(checkpoint_dir).map_err(|e| CheckpointError::Io(e.to_string()))?;
+
+    let mut checkpoints = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| CheckpointError::Io(e.to_string()))?;
+        let path = entry.path();
+        let is_ckpt = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext == "ckpt");
+        if is_ckpt {
+            checkpoints.push(entry);
+        }
+    }
+
+    if checkpoints.len() <= keep_n {
+        return Ok(());
+    }
+
+    // Sort by filename (which includes tick number, e.g. checkpoint_0000001000.ckpt)
+    checkpoints.sort_by_key(|entry| entry.file_name());
+
+    // Remove oldest checkpoints
+    let to_remove = checkpoints.len() - keep_n;
+    for entry in checkpoints.iter().take(to_remove) {
+        std::fs::remove_file(entry.path()).map_err(|e| CheckpointError::Io(e.to_string()))?;
+        debug!("Pruned old checkpoint: {}", entry.path().display());
+    }
+
+    Ok(())
 }
 
 // ============================================================================

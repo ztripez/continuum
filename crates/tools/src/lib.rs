@@ -11,6 +11,7 @@ pub mod ipc_types;
 pub(crate) mod request_handler_impls;
 pub mod request_handlers;
 pub mod run_world_intent;
+pub mod sim_proxy;
 pub mod world_api;
 
 // Re-export renamed type

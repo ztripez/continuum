@@ -108,6 +108,85 @@ impl Runtime {
                 path.to_owned(),
                 checkpoint,
                 crate::checkpoint::DEFAULT_COMPRESSION_LEVEL,
+                None,
+                None,
+            )
+            .map_err(|e| Error::Checkpoint(e.to_string()))
+    }
+
+    /// Request a checkpoint with optional symlink update and old checkpoint pruning.
+    ///
+    /// This is the extended version of [`request_checkpoint`] that offloads
+    /// symlink creation and checkpoint pruning to the background writer thread,
+    /// keeping the simulation thread free of filesystem I/O.
+    pub fn request_checkpoint_with_maintenance(
+        &self,
+        path: &std::path::Path,
+        latest_link: Option<std::path::PathBuf>,
+        keep_last_n: Option<(std::path::PathBuf, usize)>,
+    ) -> Result<()> {
+        let writer = self
+            .checkpoint_writer
+            .as_ref()
+            .ok_or_else(|| Error::Checkpoint("checkpointing not enabled".to_string()))?;
+
+        // Extract member signal data
+        let member_signals = crate::checkpoint::MemberSignalData::from_buffer(&self.member_signals)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        // Build era configs for validation
+        let era_configs = self
+            .eras
+            .iter()
+            .map(|(id, cfg)| {
+                (
+                    id.clone(),
+                    crate::checkpoint::EraConfigSnapshot {
+                        dt: cfg.dt.0,
+                        strata_count: cfg.strata.len(),
+                    },
+                )
+            })
+            .collect();
+
+        let world_ir_hash = self
+            .world_ir_hash
+            .ok_or_else(|| Error::Checkpoint("world IR hash missing".to_string()))?;
+        let stratum_states = self
+            .eras
+            .get(&self.current_era)
+            .ok_or_else(|| Error::Checkpoint("current era not found".to_string()))?
+            .strata
+            .clone();
+
+        // Build checkpoint
+        let checkpoint = crate::checkpoint::Checkpoint {
+            header: crate::checkpoint::CheckpointHeader {
+                version: crate::checkpoint::CHECKPOINT_VERSION,
+                world_ir_hash,
+                tick: self.tick,
+                sim_time: self.sim_time,
+                seed: self.initial_seed,
+                current_era: self.current_era.clone(),
+                created_at: std::time::SystemTime::now(),
+                world_git_hash: None,
+            },
+            state: crate::checkpoint::CheckpointState {
+                signals: self.signals.clone(),
+                entities: self.entities.clone(),
+                member_signals,
+                era_configs,
+                stratum_states,
+            },
+        };
+
+        writer
+            .request_checkpoint(
+                path.to_owned(),
+                checkpoint,
+                crate::checkpoint::DEFAULT_COMPRESSION_LEVEL,
+                latest_link,
+                keep_last_n,
             )
             .map_err(|e| Error::Checkpoint(e.to_string()))
     }
