@@ -52,7 +52,7 @@ impl SimulationController {
             state: Arc::new(ServerState {
                 compiled,
                 sim,
-                execution_state: parking_lot::RwLock::new(
+                execution_state: crate::request_handlers::AtomicExecutionState::new(
                     crate::request_handlers::ExecutionState::Stopped,
                 ),
                 tick_rate: std::sync::atomic::AtomicU32::new(60),

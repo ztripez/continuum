@@ -63,7 +63,7 @@ impl RequestHandler for StatusHandler {
             }
         };
 
-        let execution_state = *state.execution_state.read();
+        let execution_state = state.execution_state.load();
         let tick_rate = state
             .tick_rate
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -202,7 +202,7 @@ impl RequestHandler for RunHandler {
         }
 
         // Update observed state
-        *state.execution_state.write() = ExecutionState::Running;
+        state.execution_state.store(ExecutionState::Running);
         *state.last_error.write() = None;
 
         WorldResponse {
@@ -231,7 +231,7 @@ impl RequestHandler for StopHandler {
             };
         }
 
-        *state.execution_state.write() = ExecutionState::Stopped;
+        state.execution_state.store(ExecutionState::Stopped);
 
         WorldResponse {
             id: req.id,
@@ -250,8 +250,12 @@ impl RequestHandler for PauseHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        let current = *state.execution_state.read();
-        if current != ExecutionState::Running {
+        // Atomically transition Running → Paused
+        if state
+            .execution_state
+            .compare_exchange(ExecutionState::Running, ExecutionState::Paused)
+            .is_err()
+        {
             return WorldResponse {
                 id: req.id,
                 ok: false,
@@ -261,6 +265,8 @@ impl RequestHandler for PauseHandler {
         }
 
         if state.sim.pause().is_err() {
+            // Revert state on disconnect
+            state.execution_state.store(ExecutionState::Running);
             return WorldResponse {
                 id: req.id,
                 ok: false,
@@ -268,8 +274,6 @@ impl RequestHandler for PauseHandler {
                 error: Some("Simulation thread disconnected".to_string()),
             };
         }
-
-        *state.execution_state.write() = ExecutionState::Paused;
 
         WorldResponse {
             id: req.id,
@@ -288,30 +292,39 @@ impl RequestHandler for ResumeHandler {
     }
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
-        let current = *state.execution_state.read();
-        match current {
-            ExecutionState::Paused | ExecutionState::Error => {}
-            ExecutionState::Running => {
-                return WorldResponse {
+        // Try Paused → Running first, then Error → Running
+        let transitioned = state
+            .execution_state
+            .compare_exchange(ExecutionState::Paused, ExecutionState::Running)
+            .is_ok()
+            || state
+                .execution_state
+                .compare_exchange(ExecutionState::Error, ExecutionState::Running)
+                .is_ok();
+
+        if !transitioned {
+            let current = state.execution_state.load();
+            return match current {
+                ExecutionState::Running => WorldResponse {
                     id: req.id,
                     ok: false,
                     payload: None,
                     error: Some("Cannot resume: already running".to_string()),
-                };
-            }
-            ExecutionState::Stopped => {
-                return WorldResponse {
+                },
+                _ => WorldResponse {
                     id: req.id,
                     ok: false,
                     payload: None,
                     error: Some(
                         "Cannot resume: simulation stopped (use 'run' instead)".to_string(),
                     ),
-                };
-            }
+                },
+            };
         }
 
         if state.sim.resume().is_err() {
+            // Revert on disconnect
+            state.execution_state.store(ExecutionState::Paused);
             return WorldResponse {
                 id: req.id,
                 ok: false,
@@ -320,7 +333,6 @@ impl RequestHandler for ResumeHandler {
             };
         }
 
-        *state.execution_state.write() = ExecutionState::Running;
         *state.last_error.write() = None;
 
         WorldResponse {
@@ -929,7 +941,7 @@ impl RequestHandler for CheckpointSaveHandler {
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
         // Must be stopped or paused to save
-        let exec_state = *state.execution_state.read();
+        let exec_state = state.execution_state.load();
         if exec_state == ExecutionState::Running {
             return WorldResponse {
                 id: req.id,
@@ -1007,7 +1019,7 @@ impl RequestHandler for CheckpointLoadHandler {
 
     fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
         // Must be stopped to load
-        let exec_state = *state.execution_state.read();
+        let exec_state = state.execution_state.load();
         if exec_state != ExecutionState::Stopped {
             return WorldResponse {
                 id: req.id,

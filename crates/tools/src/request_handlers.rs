@@ -8,7 +8,7 @@ use crate::sim_proxy::SimProxy;
 use crate::world_api::{WorldRequest, WorldResponse};
 use continuum_cdsl::ast::CompiledWorld;
 use indexmap::IndexMap;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 use crate::request_handler_impls::*;
 
@@ -16,12 +16,81 @@ use crate::request_handler_impls::*;
 ///
 /// This is the IPC server's view of state — the authoritative state lives
 /// inside the simulation thread. This mirror is updated by control handlers.
+///
+/// Represented as `u8` for lock-free atomic operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ExecutionState {
-    Stopped,
-    Running,
-    Paused,
-    Error, // Paused due to error
+    Stopped = 0,
+    Running = 1,
+    Paused = 2,
+    Error = 3, // Paused due to error
+}
+
+impl ExecutionState {
+    /// Convert from raw `u8`. Returns `None` for invalid values.
+    fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Stopped),
+            1 => Some(Self::Running),
+            2 => Some(Self::Paused),
+            3 => Some(Self::Error),
+            _ => None,
+        }
+    }
+}
+
+/// Atomic wrapper for [`ExecutionState`] stored as [`AtomicU8`].
+///
+/// Provides lock-free read/write/compare-exchange operations for
+/// the execution state, avoiding `RwLock` overhead on a hot path
+/// that every status query and control handler touches.
+pub struct AtomicExecutionState(AtomicU8);
+
+impl AtomicExecutionState {
+    /// Create a new atomic execution state.
+    pub fn new(state: ExecutionState) -> Self {
+        Self(AtomicU8::new(state as u8))
+    }
+
+    /// Load the current execution state.
+    pub fn load(&self) -> ExecutionState {
+        let v = self.0.load(Ordering::Acquire);
+        ExecutionState::from_u8(v).unwrap_or_else(|| {
+            panic!("AtomicExecutionState contains invalid value: {v}");
+        })
+    }
+
+    /// Store a new execution state.
+    pub fn store(&self, state: ExecutionState) {
+        self.0.store(state as u8, Ordering::Release);
+    }
+
+    /// Compare-and-exchange: if current == `expected`, set to `new` and return `Ok(expected)`.
+    /// Otherwise return `Err(actual)`.
+    pub fn compare_exchange(
+        &self,
+        expected: ExecutionState,
+        new: ExecutionState,
+    ) -> Result<ExecutionState, ExecutionState> {
+        self.0
+            .compare_exchange(
+                expected as u8,
+                new as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .map(|v| {
+                ExecutionState::from_u8(v).unwrap_or_else(|| {
+                    panic!("AtomicExecutionState compare_exchange returned invalid value: {v}");
+                })
+            })
+            .map_err(|v| {
+                ExecutionState::from_u8(v).unwrap_or_else(|| {
+                    panic!("AtomicExecutionState compare_exchange returned invalid value: {v}");
+                })
+            })
+    }
 }
 
 /// Shared state for request handlers.
@@ -37,7 +106,8 @@ pub struct ServerState {
     pub sim: SimProxy,
 
     /// Observed execution state (mirrors the sim thread's internal state).
-    pub execution_state: parking_lot::RwLock<ExecutionState>,
+    /// Lock-free via `AtomicU8`.
+    pub execution_state: AtomicExecutionState,
 
     /// Tick rate in ticks per second (0 = unlimited).
     pub tick_rate: AtomicU32,
