@@ -501,6 +501,7 @@ name = "continuum-kernel-registry"
 version = "0.1.0"
 dependencies = [
  "continuum-foundation",
+ "continuum-kernel-types",
  "linkme",
 ]
 

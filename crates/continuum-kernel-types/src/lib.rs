@@ -11,48 +11,23 @@
 //!
 //! # Architecture
 //!
-//! - **Single source of truth**: Types defined here, populated by `#[kernel_fn]` macro
+//! - **Single source of truth**: Constraint enums defined here, re-exported by `continuum-cdsl-ast`
 //! - **No logic**: Pure data structures, no algorithms or business logic
-//! - **Distributed slice**: `KERNEL_SIGNATURES` populated at link time by macro
+//! - **Distributed slice**: `KERNEL_SIGNATURES` populated at link time by `#[kernel_fn]` macro
 //!
-//! # Dual Type Hierarchy Justification
+//! # Type Sharing
 //!
-//! **Note**: This crate defines types that are parallel to (but separate from) the AST types
-//! in `continuum-cdsl::ast::kernel`. This duplication exists for architectural reasons:
+//! All constraint enums (`ShapeConstraint`, `DimConstraint`, `UnitConstraint`,
+//! `ShapeDerivation`, `UnitDerivation`, `KernelPurity`, `ValueType`) are defined
+//! once here and re-exported by `continuum-cdsl-ast`. This eliminates type drift
+//! and removes the need for variant-by-variant conversion.
 //!
-//! ## Why Two Hierarchies?
+//! Only `KernelSignature` itself differs between this crate and the AST:
+//! - **Here**: `params: &'static [KernelParam]` (for `linkme` distributed slice)
+//! - **AST**: `params: Vec<KernelParam>` (for owned, mutable registry)
 //!
-//! 1. **Const-compatible static initialization**:
-//!    - This crate uses `&'static [KernelParam]` for parameter lists
-//!    - Required for `const` initialization in distributed slice (`KERNEL_SIGNATURES`)
-//!    - The `linkme` distributed slice requires all data to be `'static`
-//!
-//! 2. **AST requires owned, mutable structures**:
-//!    - `continuum-cdsl` uses `Vec<KernelParam>` for owned storage
-//!    - AST needs to build, modify, and serialize kernel registries
-//!    - Requires `serde` support for persistence
-//!
-//! 3. **Different lifetimes**:
-//!    - Compile-time signatures: `'static` lifetime (embedded in binary)
-//!    - AST signatures: Owned, heap-allocated (runtime constructed)
-//!
-//! ## Conversion Layer
-//!
-//! The `continuum-cdsl::ast::kernel::KernelRegistry::convert_*` functions bridge
-//! between these representations. This conversion is **one-way** (compile-time → AST)
-//! and happens once during registry initialization.
-//!
-//! ## Trade-offs
-//!
-//! - **Benefit**: Clean separation of const/static vs owned/mutable concerns
-//! - **Cost**: Requires maintaining parallel type definitions and conversion layer
-//! - **Risk**: Type drift if new constraint variants are added to only one side
-//!
-//! ## Mitigation
-//!
-//! - Shared tests ensure both hierarchies support the same constraint vocabulary
-//! - Conversion functions are centralized and exhaustive (fail to compile if variants added)
-//! - Future: Consider auto-generating one from the other via proc-macro
+//! The conversion in `KernelRegistry::convert_signature` is minimal: just
+//! `&'static [T]` → `Vec<T>` and `&'static str` → `String`.
 //!
 //! # Design Principles
 //!
@@ -496,6 +471,23 @@ pub enum UnitDerivation {
 
     /// Inverse of parameter N unit (1 / unit)
     Inverse(usize),
+
+    /// Parameter N unit raised to integer power
+    /// Power(param_index, exponent)
+    /// Example: Power(0, 3) means param_0_unit³
+    Power(usize, i8),
+
+    /// Parameter N unit raised to rational (fractional) power
+    /// PowerRational(param_index, numerator, denominator)
+    /// Example: PowerRational(0, 1, 3) means param_0_unit^(1/3)
+    ///
+    /// Used for physics formulas that require fractional dimensional exponents:
+    /// - ejecta thickness ∝ energy^(1/3)
+    /// - sediment transport ∝ flow^(3/2)
+    ///
+    /// The rational exponent is represented as (num/denom) and automatically
+    /// normalized to lowest terms.
+    PowerRational(usize, i8, u8),
 }
 
 /// Kernel purity class

@@ -173,7 +173,7 @@ pub fn derive_return_type(
         }
         UnitDerivation::Multiply(indices) => {
             let mut result = Unit::DIMENSIONLESS;
-            for &idx in indices {
+            for &idx in *indices {
                 let kt = get_kernel_arg(args, idx, span, "unit multiply")?;
                 result = result.multiply(&kt.unit).ok_or_else(|| {
                     vec![CompileError::new(

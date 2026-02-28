@@ -10,8 +10,18 @@
 //! - **Compile-time** (this module): Type signatures for DSL validation
 //! - **Runtime** (`kernel-registry`): Actual implementations populated via `#[kernel_fn]` macro
 //!
-//! Eventually, these should be synced by extracting type signatures from the runtime
-//! registry metadata.
+//! # Single Source of Truth
+//!
+//! Constraint enums (`ShapeConstraint`, `DimConstraint`, `UnitConstraint`,
+//! `ShapeDerivation`, `UnitDerivation`, `KernelPurity`) are defined once in
+//! `continuum-kernel-types` and re-exported here. This eliminates type drift
+//! and removes the need for variant-by-variant conversion.
+//!
+//! The only types defined locally are those that require **owned storage**
+//! (`Vec`, `String`) vs the `&'static` storage in `kernel-types`:
+//! - `KernelSignature` — uses `Vec<KernelParam>` (vs `&'static [KernelParam]`)
+//! - `KernelReturn` — uses `UnitDerivation` with `Vec` internally (via `Multiply`)
+//! - `RequiresUses` — uses `String` fields (vs `&'static str`)
 //!
 //! # Design Principles
 //!
@@ -79,8 +89,14 @@
 //! - Validating purity during phase assignment
 //! - Deriving return types from argument types
 
-use crate::foundation::{Shape, Unit};
 use continuum_kernel_types::{KernelId, KERNEL_SIGNATURES};
+
+// Re-export constraint types from kernel-types (single source of truth).
+// These were previously duplicated here with identical variants.
+pub use continuum_kernel_types::{
+    DimConstraint, KernelPurity, ShapeConstraint, ShapeDerivation, UnitConstraint, UnitDerivation,
+    ValueType,
+};
 
 /// Declares that a kernel requires explicit `: uses()` declaration
 ///
@@ -88,10 +104,14 @@ use continuum_kernel_types::{KernelId, KERNEL_SIGNATURES};
 /// If a signal/member uses such a function without declaring the uses clause,
 /// compilation fails.
 ///
+/// This is the **owned** variant (with `String` fields) used in the AST.
+/// The compile-time variant in `continuum_kernel_types::RequiresUses` uses
+/// `&'static str` fields for const initialization.
+///
 /// # Examples
 ///
 /// ```rust
-/// use continuum_cdsl::ast::RequiresUses;
+/// use continuum_cdsl_ast::RequiresUses;
 ///
 /// // maths.clamp requires : uses(maths.clamping)
 /// let req = RequiresUses {
@@ -112,10 +132,14 @@ pub struct RequiresUses {
 /// Defines the type signature and purity class of a kernel operation.
 /// Used for compile-time type checking and purity enforcement.
 ///
+/// This is the **owned** variant used in the AST registry. The compile-time
+/// variant in `continuum_kernel_types::KernelSignature` uses `&'static [KernelParam]`
+/// for const initialization in distributed slices.
+///
 /// # Fields
 ///
 /// - `id`: Unique kernel identifier
-/// - `params`: Parameter type constraints
+/// - `params`: Parameter type constraints (owned `Vec`)
 /// - `returns`: Return type derivation
 /// - `purity`: Effect discipline (pure vs effectful)
 /// - `requires_uses`: If Some, using this kernel requires `: uses(namespace.key)` declaration
@@ -123,10 +147,11 @@ pub struct RequiresUses {
 /// # Examples
 ///
 /// ```rust
-/// use continuum_cdsl::ast::{KernelSignature, KernelParam, KernelReturn, KernelPurity};
-/// use continuum_cdsl::ast::{ShapeConstraint, UnitConstraint, ShapeDerivation, UnitDerivation};
-/// use continuum_cdsl::ast::KernelId;
-/// use continuum_kernel_types::ValueType;
+/// use continuum_cdsl_ast::{
+///     KernelSignature, KernelParam, KernelReturn, KernelPurity,
+///     ShapeConstraint, UnitConstraint, ShapeDerivation, UnitDerivation, ValueType,
+/// };
+/// use continuum_kernel_types::KernelId;
 ///
 /// // maths.add(a, b) → same shape, same unit, pure
 /// let add_sig = KernelSignature {
@@ -149,7 +174,7 @@ pub struct KernelSignature {
     /// Kernel identifier
     pub id: KernelId,
 
-    /// Parameter type constraints
+    /// Parameter type constraints (owned for AST mutability)
     pub params: Vec<KernelParam>,
 
     /// Return type derivation
@@ -176,7 +201,7 @@ pub struct KernelSignature {
 /// # Examples
 ///
 /// ```rust
-/// use continuum_cdsl::ast::{KernelParam, ShapeConstraint, UnitConstraint};
+/// use continuum_cdsl_ast::{KernelParam, ShapeConstraint, UnitConstraint};
 ///
 /// // Parameter that accepts any shape/unit
 /// let param_any = KernelParam {
@@ -197,166 +222,11 @@ pub struct KernelParam {
     /// Parameter name
     pub name: &'static str,
 
-    /// Shape constraint
+    /// Shape constraint (from `continuum_kernel_types`)
     pub shape: ShapeConstraint,
 
-    /// Unit constraint
+    /// Unit constraint (from `continuum_kernel_types`)
     pub unit: UnitConstraint,
-}
-
-/// Shape constraint for kernel parameters
-///
-/// Defines what shapes are allowed for a parameter.
-/// Constraints can be exact, categorical (any scalar/vector/matrix),
-/// or relational (same-as, broadcast-with, dimension variables).
-///
-/// # Constraint Types
-///
-/// - **Exact**: Must be exactly this shape
-/// - **Categorical**: Any scalar/vector/matrix
-/// - **Relational**: Must match or broadcast with another parameter
-/// - **Dimension-constrained**: Vector/matrix with constrained dimensions
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::ast::{ShapeConstraint, DimConstraint};
-/// use continuum_cdsl::foundation::Shape;
-///
-/// // Must be exactly Scalar
-/// let exact = ShapeConstraint::Exact(Shape::Scalar);
-///
-/// // Any vector (dimension unconstrained)
-/// let any_vec = ShapeConstraint::AnyVector;
-///
-/// // Same shape as parameter 0
-/// let same = ShapeConstraint::SameAs(0);
-///
-/// // Vector with dimension variable 0
-/// let vec_dim = ShapeConstraint::VectorDim(DimConstraint::Var(0));
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ShapeConstraint {
-    /// Must be exactly this shape
-    Exact(Shape),
-
-    /// Any scalar
-    AnyScalar,
-
-    /// Vector of any dimension
-    AnyVector,
-
-    /// Matrix of any dimensions
-    AnyMatrix,
-
-    /// Any shape
-    Any,
-
-    /// Same shape as parameter N
-    SameAs(usize),
-
-    /// Broadcastable with parameter N
-    BroadcastWith(usize),
-
-    /// Vector with constrained dimension
-    VectorDim(DimConstraint),
-
-    /// Matrix with constrained dimensions
-    MatrixDims {
-        /// Row dimension constraint
-        rows: DimConstraint,
-        /// Column dimension constraint
-        cols: DimConstraint,
-    },
-}
-
-/// Dimension constraint for vectors and matrices
-///
-/// Defines dimension requirements for vector/matrix parameters.
-/// Dimension variables (Var) allow expressing constraints like
-/// "these two dimensions must match" without specifying exact values.
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::ast::DimConstraint;
-///
-/// // Must be exactly 3
-/// let exact = DimConstraint::Exact(3);
-///
-/// // Any dimension
-/// let any = DimConstraint::Any;
-///
-/// // Dimension variable 0 (must match all other Var(0))
-/// let var = DimConstraint::Var(0);
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DimConstraint {
-    /// Must be exactly this dimension
-    Exact(u8),
-
-    /// Any dimension
-    Any,
-
-    /// Dimension variable - Var(N) must equal all other Var(N)
-    Var(usize),
-}
-
-/// Unit constraint for kernel parameters
-///
-/// Defines what units are allowed for a parameter.
-/// Constraints can be exact, categorical (dimensionless, angle),
-/// or relational (same-as).
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::ast::UnitConstraint;
-/// use continuum_cdsl::foundation::Unit;
-///
-/// // Must be exactly meters
-/// let exact = UnitConstraint::Exact(Unit::meters());
-///
-/// // Must be dimensionless
-/// let dimensionless = UnitConstraint::Dimensionless;
-///
-/// // Must be angle (rad or deg)
-/// let angle = UnitConstraint::Angle;
-///
-/// // Same unit as parameter 0
-/// let same = UnitConstraint::SameAs(0);
-/// ```
-#[derive(Debug, Clone, PartialEq)]
-pub enum UnitConstraint {
-    /// Must be exactly this unit (including scale)
-    Exact(Unit),
-
-    /// Must be dimensionless (any scale)
-    Dimensionless,
-
-    /// Must be angle (for trig functions)
-    Angle,
-
-    /// Any unit
-    Any,
-
-    /// Same unit as parameter N (exact match including scale)
-    ///
-    /// Use for operations that require exact unit match like add/subtract.
-    SameAs(usize),
-
-    /// Same dimensional type as parameter N (scale can differ)
-    ///
-    /// Requires matching kind (Multiplicative/Affine/Logarithmic) and
-    /// dimensions, but allows scale differences. Use for operations like
-    /// comparisons where dimensional compatibility matters but scale doesn't.
-    ///
-    /// # Examples
-    ///
-    /// - Comparing `1000<m>` with `1<km>` - compatible (both length)
-    /// - Comparing `100<ppmv>` with `0.0001` - compatible (both dimensionless)
-    /// - Comparing `5<K>` with `278<C>` - incompatible (different kinds)
-    SameDimsAs(usize),
 }
 
 /// Kernel return type
@@ -374,8 +244,7 @@ pub enum UnitConstraint {
 /// # Examples
 ///
 /// ```rust
-/// use continuum_cdsl::ast::{KernelReturn, ShapeDerivation, UnitDerivation};
-/// use continuum_kernel_types::ValueType;
+/// use continuum_cdsl_ast::{KernelReturn, ShapeDerivation, UnitDerivation, ValueType};
 ///
 /// // Returns same shape and unit as parameter 0
 /// let same_as = KernelReturn {
@@ -387,213 +256,23 @@ pub enum UnitConstraint {
 /// // Returns scalar with product of parameter units
 /// let dot_product = KernelReturn {
 ///     shape: ShapeDerivation::Scalar,
-///     unit: UnitDerivation::Multiply(vec![0, 1]),
+///     unit: UnitDerivation::Multiply(&[0, 1]),
 ///     value_type: ValueType::Scalar,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct KernelReturn {
-    /// Shape derivation
+    /// Shape derivation (from `continuum_kernel_types`)
     pub shape: ShapeDerivation,
 
-    /// Unit derivation
+    /// Unit derivation (from `continuum_kernel_types`)
     pub unit: UnitDerivation,
 
     /// Rust value type returned by the kernel.
     ///
     /// Boolean returns produce `Type::Bool` directly instead of deriving
     /// a kernel type with shape/unit.
-    pub value_type: continuum_kernel_types::ValueType,
-}
-
-/// Shape derivation for kernel return type
-///
-/// Defines how the return shape is computed from parameter shapes.
-/// Can be exact, derived from a parameter, computed from broadcast,
-/// or computed from dimension variables.
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::ast::{ShapeDerivation, DimConstraint};
-/// use continuum_cdsl::foundation::Shape;
-///
-/// // Always returns scalar
-/// let scalar = ShapeDerivation::Scalar;
-///
-/// // Returns same shape as parameter 0
-/// let same = ShapeDerivation::SameAs(0);
-///
-/// // Returns broadcast of parameters 0 and 1
-/// let broadcast = ShapeDerivation::FromBroadcast(0, 1);
-///
-/// // Returns vector with dimension from variable 0
-/// let vec_dim = ShapeDerivation::VectorDim(DimConstraint::Var(0));
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ShapeDerivation {
-    /// Always this exact shape
-    Exact(Shape),
-
-    /// Same shape as parameter N
-    SameAs(usize),
-
-    /// Broadcast result of parameters N and M
-    FromBroadcast(usize, usize),
-
-    /// Always scalar (reductions)
-    Scalar,
-
-    /// Vector with dimension from constraint
-    VectorDim(DimConstraint),
-
-    /// Matrix with dimensions from constraints
-    MatrixDims {
-        /// Row dimension constraint
-        rows: DimConstraint,
-        /// Column dimension constraint
-        cols: DimConstraint,
-    },
-}
-
-/// Unit derivation for kernel return type
-///
-/// Defines how the return unit is computed from parameter units.
-/// Can be exact, derived from a parameter, or computed from
-/// arithmetic operations (multiply, divide, sqrt, inverse).
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::ast::UnitDerivation;
-/// use continuum_cdsl::foundation::Unit;
-///
-/// // Always dimensionless
-/// let dimensionless = UnitDerivation::Dimensionless;
-///
-/// // Same unit as parameter 0
-/// let same = UnitDerivation::SameAs(0);
-///
-/// // Product of parameter 0 and 1 units
-/// let multiply = UnitDerivation::Multiply(vec![0, 1]);
-///
-/// // Parameter 0 unit divided by parameter 1 unit
-/// let divide = UnitDerivation::Divide(0, 1);
-/// ```
-#[derive(Debug, Clone, PartialEq)]
-pub enum UnitDerivation {
-    /// Always this exact unit
-    Exact(Unit),
-
-    /// Always dimensionless
-    Dimensionless,
-
-    /// Same unit as parameter N
-    SameAs(usize),
-
-    /// Product of parameter units
-    Multiply(Vec<usize>),
-
-    /// Parameter N unit divided by parameter M unit
-    Divide(usize, usize),
-
-    /// Square root of parameter N unit
-    Sqrt(usize),
-
-    /// Inverse of parameter N unit (1 / unit)
-    Inverse(usize),
-
-    /// Parameter N unit raised to integer power
-    /// Power(param_index, exponent)
-    /// Example: Power(0, 3) means param_0_unit³
-    Power(usize, i8),
-
-    /// Parameter N unit raised to rational (fractional) power
-    /// PowerRational(param_index, numerator, denominator)
-    /// Example: PowerRational(0, 1, 3) means param_0_unit^(1/3)
-    ///
-    /// Used for physics formulas that require fractional dimensional exponents:
-    /// - ejecta thickness ∝ energy^(1/3)
-    /// - sediment transport ∝ flow^(3/2)
-    ///
-    /// The rational exponent is represented as (num/denom) and automatically
-    /// normalized to lowest terms.
-    PowerRational(usize, i8, u8),
-}
-
-/// Kernel purity class
-///
-/// Classifies kernels by their effect discipline.
-/// Used to enforce phase restrictions (pure-only phases vs effect-allowed phases).
-///
-/// # Purity Classes
-///
-/// - **Pure**: No side effects, deterministic, can be used in any phase
-/// - **Effect**: Mutates state (emit, spawn, destroy) or artifacts (log)
-///
-/// # Phase Restrictions
-///
-/// | Phase | Allowed |
-/// |-------|---------|
-/// | Configure | Pure |
-/// | Collect | Pure + Effect |
-/// | Resolve | **Pure only** |
-/// | Fracture | Pure + Effect |
-/// | Measure | **Pure only** |
-/// | Assert | Pure |
-/// | Apply | Pure + Effect |
-///
-/// # Determinism
-///
-/// All kernels are deterministic, including `rng.*`:
-/// - `rng.*` kernels derive randomness from `(seed, InstanceId, tick)`
-/// - Fully reproducible given the same seed
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::ast::KernelPurity;
-///
-/// // Pure kernel (maths, vector, logic, etc.)
-/// let pure = KernelPurity::Pure;
-///
-/// // Effect kernel (emit, spawn, destroy, log)
-/// let effect = KernelPurity::Effect;
-///
-/// assert!(pure.is_pure());
-/// assert!(!effect.is_pure());
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KernelPurity {
-    /// No side effects, deterministic, can be used anywhere
-    Pure,
-
-    /// Mutates state (emit, spawn, destroy) or artifacts (log)
-    Effect,
-}
-
-impl KernelPurity {
-    /// Check if this kernel is pure
-    ///
-    /// # Parameters
-    ///
-    /// None
-    ///
-    /// # Returns
-    ///
-    /// `true` if Pure, `false` if Effect
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::ast::KernelPurity;
-    ///
-    /// assert!(KernelPurity::Pure.is_pure());
-    /// assert!(!KernelPurity::Effect.is_pure());
-    /// ```
-    pub fn is_pure(self) -> bool {
-        matches!(self, Self::Pure)
-    }
+    pub value_type: ValueType,
 }
 
 /// Kernel registry
@@ -609,8 +288,8 @@ impl KernelPurity {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use continuum_cdsl::ast::KernelRegistry;
-/// use continuum_cdsl::ast::KernelId;
+/// use continuum_cdsl_ast::KernelRegistry;
+/// use continuum_kernel_types::KernelId;
 ///
 /// let registry = KernelRegistry::global();
 /// let sig = registry.get(&KernelId::new("maths", "add"));
@@ -622,14 +301,6 @@ pub struct KernelRegistry {
 
 impl KernelRegistry {
     /// Create a new empty kernel registry
-    ///
-    /// # Parameters
-    ///
-    /// None
-    ///
-    /// # Returns
-    ///
-    /// Empty registry
     fn new() -> Self {
         Self {
             signatures: std::collections::HashMap::new(),
@@ -637,10 +308,6 @@ impl KernelRegistry {
     }
 
     /// Register a kernel signature
-    ///
-    /// # Parameters
-    ///
-    /// - `signature`: Kernel signature to register
     ///
     /// # Panics
     ///
@@ -661,18 +328,6 @@ impl KernelRegistry {
     /// # Returns
     ///
     /// Kernel signature if found, None otherwise
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use continuum_cdsl::ast::KernelRegistry;
-    /// use continuum_cdsl::ast::KernelId;
-    ///
-    /// let registry = KernelRegistry::global();
-    /// let sig = registry.get(&KernelId::new("maths", "add"));
-    /// assert!(sig.is_some());
-    /// assert_eq!(sig.unwrap().params.len(), 2);
-    /// ```
     pub fn get(&self, id: &KernelId) -> Option<&KernelSignature> {
         self.signatures.get(id)
     }
@@ -717,13 +372,6 @@ impl KernelRegistry {
     /// # Returns
     ///
     /// Vector of matching kernel signatures
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let overloads = registry.get_overloads("vector", "length");
-    /// // Returns: length_vec2, length_vec3, length_vec4, length_scalar
-    /// ```
     pub fn get_overloads(&self, namespace: &str, name_prefix: &str) -> Vec<&KernelSignature> {
         self.signatures
             .iter()
@@ -733,10 +381,6 @@ impl KernelRegistry {
     }
 
     /// Get all registered kernel IDs
-    ///
-    /// # Parameters
-    ///
-    /// None
     ///
     /// # Returns
     ///
@@ -755,45 +399,22 @@ pub static KERNEL_REGISTRY: std::sync::OnceLock<KernelRegistry> = std::sync::Onc
 impl KernelRegistry {
     /// Get or initialize the global kernel registry
     ///
-    /// # Parameters
-    ///
-    /// None
-    ///
     /// # Returns
     ///
     /// Reference to the global kernel registry
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use continuum_cdsl::ast::KernelRegistry;
-    ///
-    /// let registry = KernelRegistry::global();
-    /// assert!(registry.ids().count() > 0);
-    /// ```
     pub fn global() -> &'static KernelRegistry {
         KERNEL_REGISTRY.get_or_init(Self::initialize)
     }
 
     /// Initialize the kernel registry with all built-in kernels
     ///
-    /// # Built-in Namespaces
-    ///
-    /// - `maths.*` - Arithmetic operations (add, sub, mul, div, sin, cos, etc.)
-    /// - `vector.*` - Vector operations (dot, cross, norm, normalize, etc.)
-    /// - `matrix.*` - Matrix operations (mul, transpose, inverse, etc.)
-    /// - `logic.*` - Boolean operations (and, or, not, select, etc.)
-    /// - `compare.*` - Comparison operations (eq, ne, lt, le, gt, ge)
-    /// - `rng.*` - Seeded random number generation
-    /// - `effect.*` - Effect operations (emit, spawn, destroy, log)
+    /// Populates from `KERNEL_SIGNATURES` distributed slice. The `#[kernel_fn]` macro
+    /// emits compile-time signatures that are collected by `linkme` at link time.
+    /// Conversion from `&'static` to owned types is minimal: only `Vec`/`String` wrapping.
     fn initialize() -> KernelRegistry {
         let mut registry = KernelRegistry::new();
 
-        // Populate from KERNEL_SIGNATURES distributed slice
-        // The `#[kernel_fn]` macro emits compile-time signatures that are collected
-        // by the distributed_slice macro at link time.
         for sig in KERNEL_SIGNATURES {
-            // Convert from compile-time signature to AST signature
             let ast_sig = Self::convert_signature(sig);
             registry.register(ast_sig);
         }
@@ -801,125 +422,35 @@ impl KernelRegistry {
         registry
     }
 
-    /// Convert compile-time KernelSignature to AST KernelSignature
+    /// Convert compile-time `KernelSignature` to owned AST `KernelSignature`.
+    ///
+    /// Since constraint enums are now shared (single source of truth), this
+    /// conversion only handles lifetime differences:
+    /// - `&'static [KernelParam]` → `Vec<KernelParam>` (clone)
+    /// - `&'static [usize]` → `&'static [usize]` (already static, no conversion needed)
+    /// - `&'static str` → `String` (for `RequiresUses`)
     fn convert_signature(sig: &continuum_kernel_types::KernelSignature) -> KernelSignature {
         KernelSignature {
             id: sig.id.clone(),
-            params: sig.params.iter().map(Self::convert_param).collect(),
-            returns: Self::convert_return(&sig.returns),
-            purity: Self::convert_purity(sig.purity),
+            params: sig
+                .params
+                .iter()
+                .map(|p| KernelParam {
+                    name: p.name,
+                    shape: p.shape.clone(),
+                    unit: p.unit.clone(),
+                })
+                .collect(),
+            returns: KernelReturn {
+                shape: sig.returns.shape.clone(),
+                unit: sig.returns.unit.clone(),
+                value_type: sig.returns.value_type,
+            },
+            purity: sig.purity,
             requires_uses: sig.requires_uses.map(|req| RequiresUses {
                 key: req.key.to_string(),
                 hint: req.hint.to_string(),
             }),
-        }
-    }
-
-    /// Convert compile-time KernelParam to AST KernelParam
-    fn convert_param(param: &continuum_kernel_types::KernelParam) -> KernelParam {
-        KernelParam {
-            name: param.name,
-            shape: Self::convert_shape_constraint(&param.shape),
-            unit: Self::convert_unit_constraint(&param.unit),
-        }
-    }
-
-    /// Convert compile-time ShapeConstraint to AST ShapeConstraint
-    fn convert_shape_constraint(
-        constraint: &continuum_kernel_types::ShapeConstraint,
-    ) -> ShapeConstraint {
-        use continuum_kernel_types::ShapeConstraint as CtShapeConstraint;
-        match constraint {
-            CtShapeConstraint::Exact(shape) => ShapeConstraint::Exact(shape.clone()),
-            CtShapeConstraint::AnyScalar => ShapeConstraint::AnyScalar,
-            CtShapeConstraint::AnyVector => ShapeConstraint::AnyVector,
-            CtShapeConstraint::AnyMatrix => ShapeConstraint::AnyMatrix,
-            CtShapeConstraint::Any => ShapeConstraint::Any,
-            CtShapeConstraint::SameAs(idx) => ShapeConstraint::SameAs(*idx),
-            CtShapeConstraint::BroadcastWith(idx) => ShapeConstraint::BroadcastWith(*idx),
-            CtShapeConstraint::VectorDim(dim) => {
-                ShapeConstraint::VectorDim(Self::convert_dim_constraint(dim))
-            }
-            CtShapeConstraint::MatrixDims { rows, cols } => ShapeConstraint::MatrixDims {
-                rows: Self::convert_dim_constraint(rows),
-                cols: Self::convert_dim_constraint(cols),
-            },
-        }
-    }
-
-    /// Convert compile-time DimConstraint to AST DimConstraint
-    fn convert_dim_constraint(constraint: &continuum_kernel_types::DimConstraint) -> DimConstraint {
-        use continuum_kernel_types::DimConstraint as CtDimConstraint;
-        match constraint {
-            CtDimConstraint::Exact(dim) => DimConstraint::Exact(*dim),
-            CtDimConstraint::Any => DimConstraint::Any,
-            CtDimConstraint::Var(idx) => DimConstraint::Var(*idx),
-        }
-    }
-
-    /// Convert compile-time UnitConstraint to AST UnitConstraint
-    fn convert_unit_constraint(
-        constraint: &continuum_kernel_types::UnitConstraint,
-    ) -> UnitConstraint {
-        use continuum_kernel_types::UnitConstraint as CtUnitConstraint;
-        match constraint {
-            CtUnitConstraint::Exact(unit) => UnitConstraint::Exact(*unit),
-            CtUnitConstraint::Dimensionless => UnitConstraint::Dimensionless,
-            CtUnitConstraint::Angle => UnitConstraint::Angle,
-            CtUnitConstraint::Any => UnitConstraint::Any,
-            CtUnitConstraint::SameAs(idx) => UnitConstraint::SameAs(*idx),
-            CtUnitConstraint::SameDimsAs(idx) => UnitConstraint::SameDimsAs(*idx),
-        }
-    }
-
-    /// Convert compile-time KernelReturn to AST KernelReturn
-    fn convert_return(ret: &continuum_kernel_types::KernelReturn) -> KernelReturn {
-        KernelReturn {
-            shape: Self::convert_shape_derivation(&ret.shape),
-            unit: Self::convert_unit_derivation(&ret.unit),
-            value_type: ret.value_type,
-        }
-    }
-
-    /// Convert compile-time ShapeDerivation to AST ShapeDerivation
-    fn convert_shape_derivation(
-        deriv: &continuum_kernel_types::ShapeDerivation,
-    ) -> ShapeDerivation {
-        use continuum_kernel_types::ShapeDerivation as CtShapeDerivation;
-        match deriv {
-            CtShapeDerivation::Exact(shape) => ShapeDerivation::Exact(shape.clone()),
-            CtShapeDerivation::SameAs(idx) => ShapeDerivation::SameAs(*idx),
-            CtShapeDerivation::FromBroadcast(a, b) => ShapeDerivation::FromBroadcast(*a, *b),
-            CtShapeDerivation::Scalar => ShapeDerivation::Scalar,
-            CtShapeDerivation::VectorDim(dim) => {
-                ShapeDerivation::VectorDim(Self::convert_dim_constraint(dim))
-            }
-            CtShapeDerivation::MatrixDims { rows, cols } => ShapeDerivation::MatrixDims {
-                rows: Self::convert_dim_constraint(rows),
-                cols: Self::convert_dim_constraint(cols),
-            },
-        }
-    }
-
-    /// Convert compile-time UnitDerivation to AST UnitDerivation
-    fn convert_unit_derivation(deriv: &continuum_kernel_types::UnitDerivation) -> UnitDerivation {
-        use continuum_kernel_types::UnitDerivation as CtUnitDerivation;
-        match deriv {
-            CtUnitDerivation::Exact(unit) => UnitDerivation::Exact(*unit),
-            CtUnitDerivation::Dimensionless => UnitDerivation::Dimensionless,
-            CtUnitDerivation::SameAs(idx) => UnitDerivation::SameAs(*idx),
-            CtUnitDerivation::Multiply(indices) => UnitDerivation::Multiply(indices.to_vec()),
-            CtUnitDerivation::Divide(a, b) => UnitDerivation::Divide(*a, *b),
-            CtUnitDerivation::Sqrt(idx) => UnitDerivation::Sqrt(*idx),
-            CtUnitDerivation::Inverse(idx) => UnitDerivation::Inverse(*idx),
-        }
-    }
-
-    /// Convert compile-time KernelPurity to AST KernelPurity
-    fn convert_purity(purity: continuum_kernel_types::KernelPurity) -> KernelPurity {
-        match purity {
-            continuum_kernel_types::KernelPurity::Pure => KernelPurity::Pure,
-            continuum_kernel_types::KernelPurity::Effect => KernelPurity::Effect,
         }
     }
 }
@@ -1024,12 +555,12 @@ mod tests {
         let ret = KernelReturn {
             shape: ShapeDerivation::Scalar,
             unit: UnitDerivation::Dimensionless,
-            value_type: continuum_kernel_types::ValueType::Scalar,
+            value_type: ValueType::Scalar,
         };
 
         assert_eq!(ret.shape, ShapeDerivation::Scalar);
         assert_eq!(ret.unit, UnitDerivation::Dimensionless);
-        assert_eq!(ret.value_type, continuum_kernel_types::ValueType::Scalar);
+        assert_eq!(ret.value_type, ValueType::Scalar);
     }
 
     #[test]
@@ -1062,7 +593,7 @@ mod tests {
 
     #[test]
     fn unit_derivation_multiply() {
-        let multiply = UnitDerivation::Multiply(vec![0, 1]);
+        let multiply = UnitDerivation::Multiply(&[0, 1]);
         assert_eq!(multiply.clone(), multiply);
     }
 
@@ -1104,7 +635,7 @@ mod tests {
             returns: KernelReturn {
                 shape: ShapeDerivation::SameAs(0),
                 unit: UnitDerivation::SameAs(0),
-                value_type: continuum_kernel_types::ValueType::Scalar,
+                value_type: ValueType::Scalar,
             },
             purity: KernelPurity::Pure,
             requires_uses: None,
@@ -1240,8 +771,6 @@ mod tests {
 
     #[test]
     fn registry_compare_returns_bool_value_type() {
-        use continuum_kernel_types::ValueType;
-
         let registry = KernelRegistry::global();
         let sig = registry
             .get(&KernelId::new("compare", "eq"))

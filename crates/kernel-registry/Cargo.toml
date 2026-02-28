@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 continuum-foundation = { path = "../kernels/foundation" }
+continuum-kernel-types = { path = "../continuum-kernel-types" }
 linkme = "0.3"
 
 [lints]

@@ -41,6 +41,6 @@ pub use crate::UnitConstraint::{
     SameAs as UnitSameAs, SameDimsAs as UnitSameDimsAs,
 };
 pub use crate::UnitDerivation::{
-    Dimensionless, Divide, Exact as UnitDerivExact, Inverse, Multiply, SameAs as UnitDerivSameAs,
-    Sqrt,
+    Dimensionless, Divide, Exact as UnitDerivExact, Inverse, Multiply, Power, PowerRational,
+    SameAs as UnitDerivSameAs, Sqrt,
 };
