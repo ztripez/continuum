@@ -125,27 +125,8 @@ fn build_dag(
     let mut node_spans: IndexMap<Path, Span> = IndexMap::new();
 
     // 1. Collect all nodes that execute in this phase and stratum
-    for node in world.globals.values() {
-        if node.stratum.as_ref() == Some(stratum)
-            && let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
-                // Observer boundary enforcement: Fields may only execute in Measure phase
-                if node.role_id() == RoleId::Field && phase != Phase::Measure {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::PhaseBoundaryViolation,
-                        exec.span,
-                        format!(
-                            "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
-                            node.path, phase
-                        ),
-                    )]);
-                }
-
-                nodes.push((node.path.clone(), exec));
-                node_spans.insert(node.path.clone(), exec.span);
-            }
-    }
-
-    for node in world.members.values() {
+    // Iterate globals and members uniformly — both are just nodes.
+    for node in world.globals.values().chain(world.members.values()) {
         if node.stratum.as_ref() == Some(stratum)
             && let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
                 // Observer boundary enforcement: Fields may only execute in Measure phase

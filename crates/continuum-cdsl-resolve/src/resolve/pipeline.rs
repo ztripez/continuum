@@ -27,51 +27,6 @@ use continuum_cdsl_ast::{
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
-macro_rules! apply_node_pass {
-    ($errors:expr, $globals:expr, $members:expr, |$nodes:ident| $body:expr) => {{
-        {
-            let $nodes = $globals;
-            if let Err(mut e) = $body {
-                $errors.append(&mut e);
-            }
-        }
-        {
-            let $nodes = $members;
-            if let Err(mut e) = $body {
-                $errors.append(&mut e);
-            }
-        }
-    }};
-}
-
-macro_rules! extend_node_pass {
-    ($errors:expr, $globals:expr, $members:expr, |$nodes:ident| $body:expr) => {{
-        {
-            let $nodes = $globals;
-            $errors.extend($body);
-        }
-        {
-            let $nodes = $members;
-            $errors.extend($body);
-        }
-    }};
-}
-
-macro_rules! validate_node_pass {
-    ($errors:expr, $globals:expr, $members:expr, |$node:ident| $body:expr) => {{
-        for $node in $globals {
-            if let Err(mut e) = $body {
-                $errors.append(&mut e);
-            }
-        }
-        for $node in $members {
-            if let Err(mut e) = $body {
-                $errors.append(&mut e);
-            }
-        }
-    }};
-}
-
 /// Compiles a list of raw declarations into a resolved [`CompiledWorld`].
 ///
 /// This is the main entry point for the CDSL compiler. It runs all
@@ -87,9 +42,13 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     let declarations = desugar_declarations(declarations);
 
     // 3. Group declarations by kind
+    //
+    // All nodes (globals and members) are collected into a single `all_nodes` vec.
+    // This is the Wave 2 unification: passes operate on one collection instead of two.
+    // At the end of the pipeline, nodes are split back into globals/members for the
+    // World struct (which retains the split until Wave 3).
     let mut world_decl = None;
-    let mut global_nodes = Vec::new();
-    let mut member_nodes = Vec::new();
+    let mut all_nodes = Vec::new();
     let mut entities = IndexMap::new();
     let mut strata = Vec::new();
     let mut era_decls = Vec::new();
@@ -101,12 +60,11 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     for decl in &declarations {
         match decl {
             Declaration::World(w) => world_decl = Some(w.clone()),
-            Declaration::Node(n) => {
+            Declaration::Node(n) | Declaration::Member(n) => {
                 // Collect nested config/const blocks from nodes
                 for block in &n.nested_blocks {
                     match block {
                         continuum_cdsl_ast::NestedBlock::Config(entries) => {
-                            // Flatten nested configs with qualified paths
                             for entry in entries {
                                 let mut qualified_entry = entry.clone();
                                 qualified_entry.path = n.path.append(entry.path.to_string());
@@ -114,7 +72,6 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
                             }
                         }
                         continuum_cdsl_ast::NestedBlock::Const(entries) => {
-                            // Flatten nested consts with qualified paths
                             for entry in entries {
                                 let mut qualified_entry = entry.clone();
                                 qualified_entry.path = n.path.append(entry.path.to_string());
@@ -123,29 +80,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
                         }
                     }
                 }
-                global_nodes.push(n.clone());
-            }
-            Declaration::Member(m) => {
-                // Collect nested config/const blocks from members
-                for block in &m.nested_blocks {
-                    match block {
-                        continuum_cdsl_ast::NestedBlock::Config(entries) => {
-                            for entry in entries {
-                                let mut qualified_entry = entry.clone();
-                                qualified_entry.path = m.path.append(entry.path.to_string());
-                                _config_entries.push(qualified_entry);
-                            }
-                        }
-                        continuum_cdsl_ast::NestedBlock::Const(entries) => {
-                            for entry in entries {
-                                let mut qualified_entry = entry.clone();
-                                qualified_entry.path = m.path.append(entry.path.to_string());
-                                _const_entries.push(qualified_entry);
-                            }
-                        }
-                    }
-                }
-                member_nodes.push(m.clone());
+                all_nodes.push(n.clone());
             }
             Declaration::Entity(e) => {
                 entities.insert(e.path.clone(), e.clone());
@@ -197,9 +132,9 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     // Resolve node types (TypeExpr -> Type)
-    apply_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
-        resolve_node_types(nodes, &type_table)
-    });
+    if let Err(mut e) = resolve_node_types(&mut all_nodes, &type_table) {
+        errors.append(&mut e);
+    }
 
     if !errors.is_empty() {
         return Err(errors);
@@ -221,9 +156,9 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     let strata_vec: Vec<_> = strata_map.values().cloned().collect();
-    apply_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
-        resolve_strata(nodes, &strata_vec)
-    });
+    if let Err(mut e) = resolve_strata(&mut all_nodes, &strata_vec) {
+        errors.append(&mut e);
+    }
 
     if !errors.is_empty() {
         return Err(errors);
@@ -231,12 +166,12 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
 
     // 5.5. Inject Debug Fields
     if world.metadata.debug {
-        inject_debug_fields(&mut global_nodes, &mut member_nodes);
+        inject_debug_fields(&mut all_nodes);
     }
 
     // 6. Era Resolution
     let registry = KernelRegistry::global();
-    let signal_types = collect_node_types(&global_nodes, &member_nodes);
+    let signal_types = collect_node_types(&all_nodes);
 
     // Context maps for typing
     let field_types = HashMap::new();
@@ -453,34 +388,26 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     // 6.5. Orphaned Strata Validation
-    let orphaned_warnings = crate::resolve::orphaned::validate_orphaned_strata(
-        &strata_map,
-        &resolved_eras,
-        &global_nodes,
-        &member_nodes,
-    );
+    let orphaned_warnings =
+        crate::resolve::orphaned::validate_orphaned_strata(&strata_map, &resolved_eras, &all_nodes);
     errors.extend(orphaned_warnings);
 
     // 7. Block Compilation
-    // Compile global nodes with base context
-    for node in &mut global_nodes {
-        if let Err(mut e) = compile_execution_blocks(node, &ctx) {
-            errors.append(&mut e);
-        }
-    }
-    // Compile member nodes with self context set to entity type
-    for node in &mut member_nodes {
-        // Set up self context for member nodes so self.member references work
-        let entity_id = node.entity.as_ref().expect("member node must have entity");
-        let entity_type = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
-        let member_ctx = ctx.with_execution_context(Some(entity_type), None, None, None, None);
-        if let Err(mut e) = compile_execution_blocks(node, &member_ctx) {
+    // Globals use base context; members use entity-scoped context for self.member references
+    for node in &mut all_nodes {
+        let compile_ctx = if let Some(entity_id) = &node.entity {
+            let entity_type = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
+            ctx.with_execution_context(Some(entity_type), None, None, None, None)
+        } else {
+            ctx.clone()
+        };
+        if let Err(mut e) = compile_execution_blocks(node, &compile_ctx) {
             errors.append(&mut e);
         }
     }
 
     // 8. Structural Validation (Cycles)
-    errors.extend(validate_cycles(&global_nodes, &member_nodes));
+    errors.extend(validate_cycles(&all_nodes));
 
     // 9. Validation
     // dedicated Name Validation (uses SymbolTable)
@@ -505,40 +432,33 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         }
     }
 
-    extend_node_pass!(errors, &global_nodes, &member_nodes, |nodes| {
-        validate_uses(nodes, registry)
-    });
-
-    extend_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
-        validate_integrators(nodes, registry)
-    });
+    errors.extend(validate_uses(&all_nodes, registry));
+    errors.extend(validate_integrators(&mut all_nodes, registry));
 
     // Extract :initial() attributes for signal initialization
-    extend_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
-        extract_initial_values(nodes)
-    });
+    errors.extend(extract_initial_values(&mut all_nodes));
 
-    extend_node_pass!(errors, &global_nodes, &member_nodes, |nodes| {
-        validate_seq_escape(nodes)
-    });
+    errors.extend(validate_seq_escape(&all_nodes));
 
-    validate_node_pass!(errors, &global_nodes, &member_nodes, |node| {
-        validate_node(node, &type_table, registry)
-    });
+    for node in &all_nodes {
+        if let Err(mut e) = validate_node(node, &type_table, registry) {
+            errors.append(&mut e);
+        }
+    }
 
     if !errors.is_empty() {
         return Err(errors);
     }
 
-    // Final construction
-    world.globals = global_nodes
-        .into_iter()
-        .map(|n| (n.path.clone(), n))
-        .collect();
-    world.members = member_nodes
-        .into_iter()
-        .map(|n| (n.path.clone(), n))
-        .collect();
+    // Final construction — split all_nodes back into globals/members for World struct.
+    // This split is temporary scaffolding until Wave 3 unifies the World struct.
+    for node in all_nodes {
+        if node.entity.is_some() {
+            world.members.insert(node.path.clone(), node);
+        } else {
+            world.globals.insert(node.path.clone(), node);
+        }
+    }
     world.entities = entities;
     world.strata = strata_map;
     world.eras = resolved_eras;
@@ -556,18 +476,11 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     Ok(CompiledWorld::new(world, dag_set))
 }
 
-fn collect_node_types(globals: &[Node], members: &[Node]) -> HashMap<Path, Type> {
+fn collect_node_types(nodes: &[Node]) -> HashMap<Path, Type> {
     let mut map = HashMap::new();
-    for n in globals {
+    for n in nodes {
         if let Some(ty) = &n.output {
-            let ty: Type = ty.clone();
-            map.insert(n.path.clone(), ty);
-        }
-    }
-    for n in members {
-        if let Some(ty) = &n.output {
-            let ty: Type = ty.clone();
-            map.insert(n.path.clone(), ty);
+            map.insert(n.path.clone(), ty.clone());
         }
     }
     map
@@ -815,24 +728,16 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
     }
 }
 
-fn inject_debug_fields(global_nodes: &mut Vec<Node>, member_nodes: &mut Vec<Node>) {
+fn inject_debug_fields(nodes: &mut Vec<Node>) {
     use continuum_cdsl_ast::RoleId;
 
-    let mut debug_globals = Vec::new();
-    for node in global_nodes.iter() {
+    let mut debug_nodes = Vec::new();
+    for node in nodes.iter() {
         if node.role_id() == RoleId::Signal {
-            debug_globals.push(create_debug_node(node));
+            debug_nodes.push(create_debug_node(node));
         }
     }
-    global_nodes.extend(debug_globals);
-
-    let mut debug_members = Vec::new();
-    for node in member_nodes.iter() {
-        if node.role_id() == RoleId::Signal {
-            debug_members.push(create_debug_node(node));
-        }
-    }
-    member_nodes.extend(debug_members);
+    nodes.extend(debug_nodes);
 }
 
 fn create_debug_node(source: &Node) -> Node {

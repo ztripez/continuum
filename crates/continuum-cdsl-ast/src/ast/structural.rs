@@ -162,6 +162,120 @@ impl Entity {
     }
 }
 
+// =============================================================================
+// Entity Layout (Runtime Index Computation)
+// =============================================================================
+
+/// Entity layout for flat storage indexing with hierarchy support.
+///
+/// Computed during resolution from the recursive entity tree. Each entity
+/// gets a layout that describes how its instances are stored in flat SoA
+/// buffers, accounting for parent-child count multiplication.
+///
+/// # Flat Indexing
+///
+/// Nested entities use per-parent counts, but storage is flat:
+/// ```text
+/// plate (count=12)
+///   boundary (count=4 per plate → 48 total)
+///
+/// Flat index for plate[p].boundary[b] = plate.offset + p * 4 + b
+/// ```
+///
+/// The root entity always has `total_count=1` and `offset=0`.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl_ast::ast::structural::EntityLayout;
+/// use continuum_cdsl_ast::foundation::{EntityId, Path};
+///
+/// let root = EntityLayout {
+///     path: Path::from_path_str("world"),
+///     id: EntityId::new("world"),
+///     total_count: 1,
+///     count_per_parent: 1,
+///     parent: None,
+///     offset: 0,
+/// };
+/// assert_eq!(root.flat_index(0), 0);
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EntityLayout {
+    /// Fully qualified path to this entity
+    pub path: Path,
+
+    /// Entity identifier
+    pub id: EntityId,
+
+    /// Total instance count (own count × all ancestor counts)
+    ///
+    /// For root entity: 1.
+    /// For `plate` with `count=12`: 12.
+    /// For `plate.boundary` with `count=4` per plate: 48.
+    pub total_count: usize,
+
+    /// Instances per parent (the declared count)
+    ///
+    /// For root entity: 1.
+    /// For `plate` with `:count(12)`: 12.
+    /// For `plate.boundary` with `:count(4)`: 4.
+    pub count_per_parent: usize,
+
+    /// Parent entity (None for root)
+    pub parent: Option<EntityId>,
+
+    /// Offset into flat storage for the first instance of this entity
+    ///
+    /// Used for computing absolute flat indices.
+    pub offset: usize,
+}
+
+impl EntityLayout {
+    /// Compute the flat storage index for a given instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `instance >= total_count` (fail-hard).
+    pub fn flat_index(&self, instance: usize) -> usize {
+        assert!(
+            instance < self.total_count,
+            "instance {} out of bounds for entity '{}' (total_count={})",
+            instance,
+            self.path,
+            self.total_count
+        );
+        self.offset + instance
+    }
+
+    /// Compute the flat index for a child instance given a parent instance.
+    ///
+    /// For `plate[p].boundary[b]`:
+    /// `flat = self.offset + p * self.count_per_parent + b`
+    ///
+    /// # Panics
+    ///
+    /// Panics if `parent_instance * count_per_parent + child_instance >= total_count`.
+    pub fn flat_index_child(&self, parent_instance: usize, child_instance: usize) -> usize {
+        assert!(
+            child_instance < self.count_per_parent,
+            "child instance {} out of bounds for entity '{}' (count_per_parent={})",
+            child_instance,
+            self.path,
+            self.count_per_parent
+        );
+        let flat = parent_instance * self.count_per_parent + child_instance;
+        assert!(
+            flat < self.total_count,
+            "computed flat index {} out of bounds for entity '{}' (total_count={})",
+            flat,
+            self.path,
+            self.total_count
+        );
+        self.offset + flat
+    }
+}
+
 /// Stratum declaration - execution lane with cadence
 ///
 /// A Stratum defines a named execution lane with its own temporal cadence.

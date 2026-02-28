@@ -73,15 +73,12 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Returns [`ErrorKind::CyclicDependency`] for each detected cycle, with a
 /// message describing the cycle path.
-pub fn validate_cycles(globals: &[Node], members: &[Node]) -> Vec<CompileError> {
+pub fn validate_cycles(nodes: &[Node]) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
     // Build dependency graph: path → (list of paths it depends on, span)
     let mut graph: HashMap<Path, (Vec<Path>, Span)> = HashMap::new();
-    for node in globals {
-        graph.insert(node.path.clone(), (node.reads.clone(), node.span));
-    }
-    for node in members {
+    for node in nodes {
         graph.insert(node.path.clone(), (node.reads.clone(), node.span));
     }
 
@@ -424,7 +421,7 @@ mod tests {
             make_signal("c", vec![]),
         ];
 
-        let errors = validate_cycles(&nodes, &[]);
+        let errors = validate_cycles(&nodes);
         assert!(errors.is_empty());
     }
 
@@ -433,7 +430,7 @@ mod tests {
         // a → b → a
         let nodes = vec![make_signal("a", vec!["b"]), make_signal("b", vec!["a"])];
 
-        let errors = validate_cycles(&nodes, &[]);
+        let errors = validate_cycles(&nodes);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::CyclicDependency);
         assert!(errors[0].message.contains("a"));
@@ -445,7 +442,7 @@ mod tests {
         // a → a
         let nodes = vec![make_signal("a", vec!["a"])];
 
-        let errors = validate_cycles(&nodes, &[]);
+        let errors = validate_cycles(&nodes);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::CyclicDependency);
     }
@@ -459,7 +456,7 @@ mod tests {
             make_signal("c", vec!["a"]),
         ];
 
-        let errors = validate_cycles(&nodes, &[]);
+        let errors = validate_cycles(&nodes);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::CyclicDependency);
     }
@@ -489,7 +486,7 @@ mod tests {
             make_signal("planet.surface_gravity", vec!["planet.radius"]),
         ];
 
-        let errors = validate_cycles(&nodes, &[]);
+        let errors = validate_cycles(&nodes);
         assert!(errors.is_empty());
     }
 

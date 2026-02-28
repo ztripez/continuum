@@ -18,16 +18,14 @@ use std::collections::HashSet;
 /// # Parameters
 /// - `strata`: All declared strata
 /// - `eras`: All resolved eras
-/// - `global_nodes`: All global nodes (signals, fields, operators, etc.)
-/// - `member_nodes`: All per-entity member nodes
+/// - `nodes`: All nodes (globals and members combined)
 ///
 /// # Returns
 /// Vec of warnings for orphaned strata (does not fail compilation)
 pub fn validate_orphaned_strata(
     strata: &IndexMap<continuum_cdsl_ast::foundation::Path, Stratum>,
     eras: &IndexMap<continuum_cdsl_ast::foundation::Path, Era>,
-    global_nodes: &[Node],
-    member_nodes: &[Node],
+    nodes: &[Node],
 ) -> Vec<CompileError> {
     let mut used_strata = HashSet::new();
 
@@ -39,12 +37,7 @@ pub fn validate_orphaned_strata(
     }
 
     // Collect strata assigned to nodes
-    for node in global_nodes {
-        if let Some(stratum_id) = &node.stratum {
-            used_strata.insert(stratum_id.clone());
-        }
-    }
-    for node in member_nodes {
+    for node in nodes {
         if let Some(stratum_id) = &node.stratum {
             used_strata.insert(stratum_id.clone());
         }
@@ -94,8 +87,7 @@ mod tests {
 
         let eras = IndexMap::new();
 
-        let empty_members: &[Node] = &[];
-        let warnings = validate_orphaned_strata(&strata, &eras, &[], empty_members);
+        let warnings = validate_orphaned_strata(&strata, &eras, &[]);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0]
             .message
@@ -118,8 +110,7 @@ mod tests {
         );
         node.stratum = Some(StratumId::new("main"));
 
-        let empty_members: &[Node] = &[];
-        let warnings = validate_orphaned_strata(&strata, &eras, &[node], empty_members);
+        let warnings = validate_orphaned_strata(&strata, &eras, &[node]);
         assert!(warnings.is_empty());
     }
 }
