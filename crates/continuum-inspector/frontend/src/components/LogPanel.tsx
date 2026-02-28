@@ -17,8 +17,11 @@ export function LogPanel({ ws }: LogPanelProps) {
   useEffect(() => {
     if (ws.status !== 'connected') return;
 
-    // Subscribe to all messages
+    // Subscribe to all messages, but filter out high-frequency tick events
+    // (those are consumed by the Header for status display, not log-worthy)
     const unsubscribe = ws.subscribe('*', (msg: any) => {
+      if ('type' in msg && msg.type === 'tick') return;
+
       const entry: LogEntry = {
         timestamp: new Date(),
         type: 'type' in msg && msg.type.includes('event') ? 'event' : 'error' in msg ? 'error' : 'info',
