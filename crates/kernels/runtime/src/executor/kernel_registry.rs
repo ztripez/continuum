@@ -65,7 +65,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::executor::l1_kernels::ScalarL1Kernel;
+    use crate::executor::l1_kernels::L1Kernel;
     use crate::executor::lowering_strategy::LoweringStrategy;
     use crate::types::EntityId;
 
@@ -79,7 +79,7 @@ mod tests {
         assert!(registry.is_empty());
 
         let id = make_member_signal_id("test.entity", "value");
-        let kernel = ScalarL1Kernel::new(id.clone(), Arc::new(|ctx| ctx.prev + 1.0), 100);
+        let kernel = L1Kernel::<f64>::new(id.clone(), Arc::new(|ctx| ctx.prev + 1.0), 100);
 
         registry.register(kernel);
         assert_eq!(registry.len(), 1);

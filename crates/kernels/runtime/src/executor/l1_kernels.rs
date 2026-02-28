@@ -291,28 +291,6 @@ impl<T: L1KernelValue> LaneKernel for L1Kernel<T> {
     }
 }
 
-// ============================================================================
-// Type Aliases for Backward Compatibility
-// ============================================================================
-
-/// Scalar L1 kernel (backward compatibility alias).
-pub type ScalarL1Kernel = L1Kernel<f64>;
-
-/// Vec3 L1 kernel (backward compatibility alias).
-pub type Vec3L1Kernel = L1Kernel<[f64; 3]>;
-
-/// Vec2 L1 kernel.
-pub type Vec2L1Kernel = L1Kernel<[f64; 2]>;
-
-/// Vec4 L1 kernel.
-pub type Vec4L1Kernel = L1Kernel<[f64; 4]>;
-
-/// Resolver function type for scalar member signals (backward compatibility).
-pub type ScalarKernelFn = KernelFn<f64>;
-
-/// Resolver function type for Vec3 member signals (backward compatibility).
-pub type Vec3KernelFn = KernelFn<[f64; 3]>;
-
 // Re-export context types for convenience
 pub use super::member_executor::{ScalarResolveContext, Vec3ResolveContext};
 
@@ -334,7 +312,7 @@ mod tests {
     #[test]
     fn test_scalar_l1_kernel_properties() {
         let id = make_member_signal_id("test.entity", "age");
-        let kernel = ScalarL1Kernel::new(id.clone(), Arc::new(|ctx| ctx.prev + 1.0), 1000);
+        let kernel = L1Kernel::<f64>::new(id.clone(), Arc::new(|ctx| ctx.prev + 1.0), 1000);
 
         assert_eq!(kernel.strategy(), LoweringStrategy::InstanceParallel);
         assert_eq!(kernel.member_signal_id(), &id);
@@ -367,7 +345,7 @@ mod tests {
 
         // Create kernel that adds 1 to each value
         let id = make_member_signal_id("test.entity", "counter");
-        let kernel = ScalarL1Kernel::new(id, Arc::new(|ctx| ctx.prev + 1.0), 10);
+        let kernel = L1Kernel::<f64>::new(id, Arc::new(|ctx| ctx.prev + 1.0), 10);
 
         // Execute
         let signals = SignalStorage::default();
@@ -417,7 +395,7 @@ mod tests {
 
         // Create kernel that moves position by [1, 1, 1]
         let id = make_member_signal_id("test.entity", "position");
-        let kernel = Vec3L1Kernel::new(
+        let kernel = L1Kernel::<[f64; 3]>::new(
             id,
             Arc::new(|ctx| [ctx.prev[0] + 1.0, ctx.prev[1] + 1.0, ctx.prev[2] + 1.0]),
             5,

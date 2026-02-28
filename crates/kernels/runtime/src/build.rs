@@ -156,7 +156,7 @@ fn value_matches_type_expr(value: &Value, type_expr: &TypeExpr) -> bool {
 ///
 /// Basic usage without scenario:
 /// ```rust
-/// use continuum_cdsl::compile;
+/// use continuum_cdsl::compile_with_sources;
 /// use continuum_runtime::build_runtime;
 /// use std::time::{SystemTime, UNIX_EPOCH};
 ///

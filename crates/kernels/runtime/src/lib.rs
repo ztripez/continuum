@@ -33,7 +33,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use continuum_cdsl::compile;
+//! use continuum_cdsl::compile_with_sources;
 //! use continuum_runtime::build_runtime;
 //!
 //! let root = std::env::temp_dir().join("cdsl-demo");
@@ -90,8 +90,8 @@ pub use executor::{
     CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, LaneKernel,
     LaneKernelError, LaneKernelRegistry, LaneKernelResult, LoweringHeuristics, LoweringStrategy,
     MeasureContext, MeasureFn, MemberResolveContext, MemberSignalResolver, PhaseExecutor,
-    ResolveContext, ResolverFn, Runtime, ScalarKernelFn, ScalarL1Kernel, ScalarL1Resolver,
-    ScalarResolveContext, ScalarResolverFn, TransitionFn, Vec3KernelFn, Vec3L1Kernel,
+    ResolveContext, ResolverFn, Runtime, L1Kernel, ScalarL1Resolver,
+    ScalarResolveContext, ScalarResolverFn, TransitionFn,
     Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn, WarmupContext, WarmupExecutor, WarmupFn,
 };
 pub use soa_storage::{

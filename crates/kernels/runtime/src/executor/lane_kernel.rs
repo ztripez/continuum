@@ -32,10 +32,10 @@
 //! # Example
 //!
 //! ```ignore
-//! use continuum_runtime::executor::{LaneKernel, LoweringStrategy, ScalarL1Kernel};
+//! use continuum_runtime::executor::{LaneKernel, LoweringStrategy, L1Kernel};
 //!
 //! // Create an L1 kernel for a scalar member signal
-//! let kernel = ScalarL1Kernel::new(
+//! let kernel = L1Kernel::<f64>::new(
 //!     member_signal_id,
 //!     Arc::new(|ctx| ctx.prev + 1.0),
 //!     population_hint,

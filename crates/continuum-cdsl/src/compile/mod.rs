@@ -319,21 +319,6 @@ pub fn compile_from_memory(sources: IndexMap<PathBuf, String>) -> CompileResultW
     result
 }
 
-/// Compiles a Continuum world from a root directory (without source map in error).
-///
-/// This is a compatibility wrapper around [`compile_with_sources`] that discards
-/// the source map on error. For better error messages, use [`compile_with_sources`]
-/// and format errors with [`DiagnosticFormatter`].
-///
-/// # Parameters
-/// - `root`: Path to the world root directory.
-///
-/// # Errors
-/// Returns a list of [`CompileError`] if any stage of the pipeline fails.
-pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
-    compile_with_sources(root).map_err(|(_, errors)| errors)
-}
-
 /// Serializes a [`CompiledWorld`] to a MessagePack byte vector.
 pub fn serialize_world(world: &CompiledWorld) -> Result<Vec<u8>, rmp_serde::encode::Error> {
     rmp_serde::to_vec_named(world)

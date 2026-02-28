@@ -35,14 +35,10 @@
 //! ## Usage
 //!
 //! ```rust,ignore
-//! use continuum_cdsl::compile;
-//! use std::collections::HashMap;
-//! use std::path::PathBuf;
+//! use continuum_cdsl::compile_with_sources;
+//! use std::path::Path;
 //!
-//! let mut sources = HashMap::new();
-//! sources.insert(PathBuf::from("world.cdsl"), source_code);
-//!
-//! let result = compile(&sources);
+//! let result = compile_with_sources(Path::new("worlds/terra"));
 //! ```
 
 // Force-link: populates KERNEL_SIGNATURES distributed slice
@@ -71,8 +67,8 @@ pub use continuum_cdsl_resolve::{desugar, CompileError};
 pub mod compile;
 
 pub use compile::{
-    compile, compile_from_memory, compile_with_sources, deserialize_world, format_errors,
-    serialize_world, CompileResultWithSources,
+    compile_from_memory, compile_with_sources, deserialize_world, format_errors, serialize_world,
+    CompileResultWithSources,
 };
 
 // Version info

@@ -65,7 +65,7 @@ pub use context::{
     MeasureContext, ResolveContext, WarmupContext,
 };
 pub use kernel_registry::LaneKernelRegistry;
-pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
+pub use l1_kernels::L1Kernel;
 pub use l3_kernel::{
     L3Kernel, L3KernelBuilder, MemberDag, MemberDagError, ScalarL3MemberResolver,
     ScalarL3ResolverFn, Vec3L3MemberResolver, Vec3L3ResolverFn,

@@ -35,7 +35,7 @@ signal counter {
     fs::write(&file_path, source).unwrap();
 
     // 1. Compile
-    let result = compile(dir.path());
+    let result = compile_with_sources(dir.path()).map_err(|(_, errors)| errors);
 
     // Just verify parsing works - resolution may fail due to incomplete world
     match result {
@@ -56,7 +56,7 @@ signal counter {
 #[test]
 fn test_compile_empty_directory_error() {
     let dir = tempdir().unwrap();
-    let result = compile(dir.path());
+    let result = compile_with_sources(dir.path()).map_err(|(_, errors)| errors);
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert!(errors
@@ -74,7 +74,7 @@ fn test_compile_multi_file_errors() {
     // File 2: Parsing error
     fs::write(dir.path().join("parse.cdsl"), "world").unwrap();
 
-    let result = compile(dir.path());
+    let result = compile_with_sources(dir.path()).map_err(|(_, errors)| errors);
     assert!(result.is_err());
     let errors = result.unwrap_err();
 
