@@ -37,7 +37,7 @@ use crossbeam_channel as cbc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, trace, warn};
 
 /// Capacity of the control channel (small, high-priority).
 const CONTROL_CHANNEL_CAP: usize = 8;
@@ -177,7 +177,7 @@ fn sim_thread_main(
                 // Execute tick
                 match runtime.execute_tick() {
                     Ok(tick_ctx) => {
-                        debug!(tick = runtime.tick(), "Tick executed");
+                        trace!(tick = runtime.tick(), "Tick executed");
                         emit_tick_event(&event_tx, &tick_ctx, &runtime, "running");
                     }
                     Err(e) => {

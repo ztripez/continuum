@@ -10,7 +10,7 @@ use continuum_tools::world_api::framing::{read_message, write_message};
 use continuum_tools::world_api::{WorldMessage, WorldRequest};
 use futures::{SinkExt, StreamExt};
 use tokio::net::UnixStream;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Axum handler for WebSocket upgrade at `/ws` endpoint.
 ///
@@ -100,7 +100,7 @@ pub async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
 
                     match json_text {
                         Ok(text) => {
-                            debug!("IPC -> WS: {}", text);
+                            trace!("IPC -> WS: {}", text);
                             if ws_sender.send(Message::Text(text)).await.is_err() {
                                 info!("WebSocket closed (send failed)");
                                 break;
