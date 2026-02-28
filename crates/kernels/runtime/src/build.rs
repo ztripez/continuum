@@ -354,16 +354,7 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
         }
     }
 
-    for (_path, node) in &compiled.world.globals {
-        load_nested_config_const(
-            &node.path,
-            &node.nested_blocks,
-            &mut config_values,
-            &mut const_values,
-            &mut config_types,
-        );
-    }
-    for (_path, node) in &compiled.world.members {
+    for (_path, node) in &compiled.world.nodes {
         load_nested_config_const(
             &node.path,
             &node.nested_blocks,
@@ -472,7 +463,12 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
 
     // Register all member signals with the member signal buffer
     // This must happen BEFORE init_member_instances
-    for (path, node) in &compiled.world.members {
+    for (path, node) in compiled
+        .world
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.entity.is_some())
+    {
         // Use output type (set by type resolution) instead of type_expr (cleared after resolution)
         let Some(output_type) = node.output.as_ref() else {
             // Not a signal (probably entity field metadata)
@@ -520,16 +516,7 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
 
     // Extract signal types for zero value initialization
     let mut signal_types = IndexMap::new();
-
-    // Extract types from global signals
-    for (path, node) in &compiled.world.globals {
-        if let Some(output_type) = &node.output {
-            signal_types.insert(SignalId::from(path.to_string()), output_type.clone());
-        }
-    }
-
-    // Extract types from member signals
-    for (path, node) in &compiled.world.members {
+    for (path, node) in &compiled.world.nodes {
         if let Some(output_type) = &node.output {
             signal_types.insert(SignalId::from(path.to_string()), output_type.clone());
         }
@@ -540,8 +527,13 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     // Initialize spatial topologies from entity declarations
     runtime.initialize_topologies(&compiled.world.entities);
 
-    // Initialize signals from world defaults/metadata
-    for (path, node) in &compiled.world.globals {
+    // Initialize global signals from world defaults/metadata
+    for (path, node) in compiled
+        .world
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.entity.is_none())
+    {
         // Try to initialize from literal resolve block first
         if let Some(literal) = node
             .executions
@@ -588,25 +580,17 @@ fn compile_bytecode_and_dags(
         for level in &dag.levels {
             let mut nodes = Vec::with_capacity(level.nodes.len());
             for path in &level.nodes {
-                let (role_id, exec, node_path) = if let Some(node) =
-                    compiled.world.globals.get(path)
-                {
-                    let exec = node
-                        .executions
-                        .iter()
-                        .find(|execution| execution.phase == *phase)
-                        .unwrap_or_else(|| panic!("Missing execution for {} in {:?}", path, phase));
-                    (node.role_id(), exec, node.path.clone())
-                } else if let Some(node) = compiled.world.members.get(path) {
-                    let exec = node
-                        .executions
-                        .iter()
-                        .find(|execution| execution.phase == *phase)
-                        .unwrap_or_else(|| panic!("Missing execution for {} in {:?}", path, phase));
-                    (node.role_id(), exec, node.path.clone())
-                } else {
-                    panic!("DAG references unknown node {}", path);
-                };
+                let node = compiled
+                    .world
+                    .nodes
+                    .get(path)
+                    .unwrap_or_else(|| panic!("DAG references unknown node {}", path));
+                let exec = node
+                    .executions
+                    .iter()
+                    .find(|execution| execution.phase == *phase)
+                    .unwrap_or_else(|| panic!("Missing execution for {} in {:?}", path, phase));
+                let (role_id, node_path) = (node.role_id(), node.path.clone());
 
                 let key = (path.clone(), *phase);
                 let block_idx = if let Some(idx) = block_indices.get(&key) {
@@ -623,8 +607,8 @@ fn compile_bytecode_and_dags(
 
                 let node_kind = match (role_id, *phase) {
                     (RoleId::Signal, Phase::Configure) | (RoleId::Signal, Phase::Resolve) => {
-                        // Check if this is a member signal (domain.entity.member)
-                        if compiled.world.members.contains_key(path) {
+                        // Check if this is a member signal (has entity association)
+                        if node.entity.is_some() {
                             // Parse domain.entity.member path
                             let path_str = path.to_string();
                             let path_parts: Vec<&str> = path_str.split('.').collect();
@@ -685,12 +669,7 @@ fn compile_bytecode_and_dags(
                     .reads
                     .iter()
                     .filter_map(|read| {
-                        if let Some(read_node) = compiled.world.globals.get(read) {
-                            if read_node.role_id() != RoleId::Signal {
-                                panic!("read '{}' is not a signal", read);
-                            }
-                            Some(SignalId::from(read.to_string()))
-                        } else if let Some(read_node) = compiled.world.members.get(read) {
+                        if let Some(read_node) = compiled.world.nodes.get(read) {
                             if read_node.role_id() != RoleId::Signal {
                                 panic!("read '{}' is not a signal", read);
                             }

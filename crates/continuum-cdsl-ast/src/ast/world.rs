@@ -41,7 +41,7 @@ pub use super::dag::{ExecutionDag, ExecutionLevel};
 ///     policy: WorldPolicy::default(),
 /// };
 /// let world = World::new(decl);
-/// assert!(world.eras.is_empty());
+/// assert!(world.nodes.is_empty());
 /// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct World {
@@ -54,11 +54,11 @@ pub struct World {
     #[serde(default)]
     pub initial_era: Option<EraId>,
 
-    /// Global nodes keyed by fully-qualified path.
-    pub globals: IndexMap<Path, Node>,
-
-    /// Per-entity members keyed by fully-qualified path.
-    pub members: IndexMap<Path, Node>,
+    /// All resolved nodes (signals, fields, operators) keyed by fully-qualified path.
+    ///
+    /// Global nodes have `entity: None`, member nodes have `entity: Some(id)`.
+    /// This unified collection replaces the former `globals`/`members` split.
+    pub nodes: IndexMap<Path, Node>,
 
     /// Entity definitions keyed by fully-qualified path.
     pub entities: IndexMap<Path, Entity>,
@@ -99,14 +99,13 @@ impl World {
     ///     policy: WorldPolicy::default(),
     /// };
     /// let world = World::new(decl);
-    /// assert!(world.globals.is_empty());
+    /// assert!(world.nodes.is_empty());
     /// ```
     pub fn new(metadata: WorldDecl) -> Self {
         Self {
             metadata,
             initial_era: None,
-            globals: IndexMap::new(),
-            members: IndexMap::new(),
+            nodes: IndexMap::new(),
             entities: IndexMap::new(),
             strata: IndexMap::new(),
             eras: IndexMap::new(),

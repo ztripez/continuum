@@ -125,8 +125,7 @@ fn build_dag(
     let mut node_spans: IndexMap<Path, Span> = IndexMap::new();
 
     // 1. Collect all nodes that execute in this phase and stratum
-    // Iterate globals and members uniformly — both are just nodes.
-    for node in world.globals.values().chain(world.members.values()) {
+    for node in world.nodes.values() {
         if node.stratum.as_ref() == Some(stratum)
             && let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
                 // Observer boundary enforcement: Fields may only execute in Measure phase
@@ -449,8 +448,8 @@ mod tests {
         );
         add_default_era(&mut world, span);
         add_default_era(&mut world, span);
-        world.globals.insert(node_a.path.clone(), node_a);
-        world.globals.insert(node_b.path.clone(), node_b);
+        world.nodes.insert(node_a.path.clone(), node_a);
+        world.nodes.insert(node_b.path.clone(), node_b);
 
         let dag_set = compile_graphs(&world).expect("Failed to compile graphs");
         let dag = dag_set
@@ -526,8 +525,8 @@ mod tests {
         );
         add_default_era(&mut world, span);
         add_default_era(&mut world, span);
-        world.globals.insert(node_a.path.clone(), node_a);
-        world.globals.insert(node_b.path.clone(), node_b);
+        world.nodes.insert(node_a.path.clone(), node_a);
+        world.nodes.insert(node_b.path.clone(), node_b);
 
         let result = compile_graphs(&world);
         assert!(result.is_err());
@@ -588,7 +587,7 @@ mod tests {
         );
         add_default_era(&mut world, span);
         add_default_era(&mut world, span);
-        world.globals.insert(field_node.path.clone(), field_node);
+        world.nodes.insert(field_node.path.clone(), field_node);
 
         // Should fail: Fields are observer-only, can't execute in Resolve phase
         let result = compile_graphs(&world);
@@ -689,9 +688,9 @@ mod tests {
         add_default_era(&mut world, span);
 
         // Insert in non-alphabetical order to verify sorting
-        world.globals.insert(node_zebra.path.clone(), node_zebra);
-        world.globals.insert(node_apple.path.clone(), node_apple);
-        world.globals.insert(node_banana.path.clone(), node_banana);
+        world.nodes.insert(node_zebra.path.clone(), node_zebra);
+        world.nodes.insert(node_apple.path.clone(), node_apple);
+        world.nodes.insert(node_banana.path.clone(), node_banana);
 
         let dag_set = compile_graphs(&world).expect("Failed to compile graphs");
         let dag = dag_set
@@ -829,8 +828,8 @@ mod tests {
             ),
         );
         add_default_era(&mut world, span);
-        world.globals.insert(node_slow.path.clone(), node_slow);
-        world.globals.insert(node_fast.path.clone(), node_fast);
+        world.nodes.insert(node_slow.path.clone(), node_slow);
+        world.nodes.insert(node_fast.path.clone(), node_fast);
 
         // Cross-stratum reads are allowed - fast_signal can read slow_signal
         // The runtime handles execution ordering between strata
@@ -906,8 +905,8 @@ mod tests {
             ),
         );
         add_default_era(&mut world, span);
-        world.globals.insert(node_op1.path.clone(), node_op1);
-        world.globals.insert(node_op2.path.clone(), node_op2);
+        world.nodes.insert(node_op1.path.clone(), node_op1);
+        world.nodes.insert(node_op2.path.clone(), node_op2);
 
         // Should fail: two operators emitting to same field in Measure phase
         let result = compile_graphs(&world);
@@ -959,7 +958,7 @@ mod tests {
             ),
         );
         add_default_era(&mut world, span);
-        world.globals.insert(node_a.path.clone(), node_a);
+        world.nodes.insert(node_a.path.clone(), node_a);
 
         // Should SUCCEED: temporal read is not a DAG edge
         let result = compile_graphs(&world);

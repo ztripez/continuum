@@ -450,14 +450,9 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         return Err(errors);
     }
 
-    // Final construction — split all_nodes back into globals/members for World struct.
-    // This split is temporary scaffolding until Wave 3 unifies the World struct.
+    // Final construction — populate unified nodes collection
     for node in all_nodes {
-        if node.entity.is_some() {
-            world.members.insert(node.path.clone(), node);
-        } else {
-            world.globals.insert(node.path.clone(), node);
-        }
+        world.nodes.insert(node.path.clone(), node);
     }
     world.entities = entities;
     world.strata = strata_map;
@@ -930,12 +925,12 @@ mod tests {
             .contains_key(&Path::from_path_str("plate")));
         assert!(world
             .world
-            .members
+            .nodes
             .contains_key(&Path::from_path_str("plate.mass")));
 
         let mass_node = world
             .world
-            .members
+            .nodes
             .get(&Path::from_path_str("plate.mass"))
             .unwrap();
         assert!(mass_node.output.is_some());
@@ -1312,16 +1307,16 @@ mod tests {
         // Should have gravity signal and debug.gravity field
         assert!(world
             .world
-            .globals
+            .nodes
             .contains_key(&Path::from_path_str("gravity")));
         assert!(world
             .world
-            .globals
+            .nodes
             .contains_key(&Path::from_path_str("debug.gravity")));
 
         let debug_node = world
             .world
-            .globals
+            .nodes
             .get(&Path::from_path_str("debug.gravity"))
             .unwrap();
         assert_eq!(debug_node.role_id(), continuum_cdsl_ast::RoleId::Field);
@@ -1334,16 +1329,16 @@ mod tests {
         // Verify member signal
         assert!(world
             .world
-            .members
+            .nodes
             .contains_key(&Path::from_path_str("plate.mass")));
         assert!(world
             .world
-            .members
+            .nodes
             .contains_key(&Path::from_path_str("debug.plate.mass")));
 
         let debug_member = world
             .world
-            .members
+            .nodes
             .get(&Path::from_path_str("debug.plate.mass"))
             .unwrap();
         assert_eq!(debug_member.role_id(), continuum_cdsl_ast::RoleId::Field);

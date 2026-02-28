@@ -214,7 +214,7 @@ impl ContinuumDebugAdapter {
                         let mut set_breakpoints: HashSet<usize> = HashSet::new();
 
                         for (bp_path, bp_lines) in &session.breakpoints {
-                            for (path, node) in session.world.globals.iter() {
+                            for (path, node) in session.world.nodes.iter() {
                                 if let Some(ref node_file) = node.file {
                                     if node_file == bp_path {
                                         if let Some(source) = session.sources.get(node_file) {
@@ -276,7 +276,7 @@ impl ContinuumDebugAdapter {
                     // If we are at a breakpoint, add a frame for the signal
                     if let Some(ref signal_id) = session.current_halt_signal {
                         let path = continuum_foundation::Path::from(signal_id.to_string());
-                        if let Some(node) = session.world.globals.get(&path) {
+                        if let Some(node) = session.world.nodes.get(&path) {
                             let mut frame = StackFrame {
                                 id: 2,
                                 name: format!("Signal: {}", signal_id),
@@ -358,7 +358,7 @@ impl ContinuumDebugAdapter {
                     if args.variables_reference == 1 {
                         // Scope: Signals
                         // TODO: Implement signal value inspection once runtime API supports it
-                        for (path, node) in &session.world.globals {
+                        for (path, node) in &session.world.nodes {
                             variables.push(Variable {
                                 name: path.to_string(),
                                 value: format!("{:?} (not implemented)", node.output),

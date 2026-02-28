@@ -368,7 +368,7 @@ impl RequestHandler for SignalListHandler {
         let signals: Vec<SignalInfo> = state
             .compiled
             .world
-            .globals
+            .nodes
             .iter()
             .filter(|(_, node)| node.role_id() == RoleId::Signal)
             .map(|(path, node)| SignalInfo {
@@ -421,7 +421,7 @@ impl RequestHandler for SignalDescribeHandler {
         };
 
         let signal_path = continuum_foundation::Path::from(signal_id.to_string());
-        let node = match state.compiled.world.globals.get(&signal_path) {
+        let node = match state.compiled.world.nodes.get(&signal_path) {
             Some(node) if node.role_id() == RoleId::Signal => node,
             _ => {
                 return WorldResponse {
@@ -540,7 +540,7 @@ impl RequestHandler for FieldListHandler {
         let fields: Vec<FieldInfo> = state
             .compiled
             .world
-            .globals
+            .nodes
             .iter()
             .filter(|(_, node)| node.role_id() == RoleId::Field)
             .map(|(path, node)| FieldInfo {
@@ -593,7 +593,7 @@ impl RequestHandler for FieldDescribeHandler {
         };
 
         let field_path = continuum_foundation::Path::from(field_id.to_string());
-        let node = match state.compiled.world.globals.get(&field_path) {
+        let node = match state.compiled.world.nodes.get(&field_path) {
             Some(node) if node.role_id() == RoleId::Field => node,
             _ => {
                 return WorldResponse {
@@ -738,7 +738,7 @@ impl RequestHandler for ImpulseListHandler {
         let impulses: Vec<ImpulseInfo> = state
             .compiled
             .world
-            .globals
+            .nodes
             .iter()
             .filter(|(_, node)| node.role_id() == RoleId::Impulse)
             .map(|(path, node)| ImpulseInfo {
@@ -855,7 +855,7 @@ impl RequestHandler for AssertionListHandler {
         let assertions: Vec<AssertionInfo> = state
             .compiled
             .world
-            .globals
+            .nodes
             .iter()
             .filter_map(|(path, node)| {
                 if node.role_id() == RoleId::Signal && !node.assertions.is_empty() {

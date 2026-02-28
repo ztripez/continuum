@@ -131,7 +131,7 @@ signal counter {
             assert_eq!(compiled.world.metadata.path.to_string(), "test_world");
             assert!(compiled
                 .world
-                .globals
+                .nodes
                 .contains_key(&crate::foundation::Path::from_path_str("counter")));
         }
         Err((_, errors)) => {
@@ -200,11 +200,11 @@ signal bar {
             assert_eq!(compiled.world.metadata.path.to_string(), "test_multi");
             assert!(compiled
                 .world
-                .globals
+                .nodes
                 .contains_key(&crate::foundation::Path::from_path_str("foo")));
             assert!(compiled
                 .world
-                .globals
+                .nodes
                 .contains_key(&crate::foundation::Path::from_path_str("bar")));
         }
         Err((_, errors)) => {

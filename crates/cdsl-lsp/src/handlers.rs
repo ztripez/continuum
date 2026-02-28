@@ -144,24 +144,8 @@ impl LanguageServer for Backend {
 
         let offset = position_to_offset(&doc, position);
 
-        // Search globals
-        for (_path, node) in world.globals.iter() {
-            if node.span.start as usize <= offset && offset <= node.span.end as usize {
-                let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
-                let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
-
-                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                    uri: uri.clone(),
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                })));
-            }
-        }
-
-        // Search members
-        for (_path, node) in world.members.iter() {
+        // Search nodes
+        for (_path, node) in world.nodes.iter() {
             if node.span.start as usize <= offset && offset <= node.span.end as usize {
                 let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
                 let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
@@ -195,15 +179,8 @@ impl LanguageServer for Backend {
 
         let offset = position_to_offset(&doc, position);
 
-        // Search globals (signals, fields, operators, etc.)
-        for (_path, node) in world.globals.iter() {
-            if node.span.start as usize <= offset && offset <= node.span.end as usize {
-                return Ok(Some(format_hover_from_node(node)));
-            }
-        }
-
-        // Search members (per-entity primitives)
-        for (_path, node) in world.members.iter() {
+        // Search all nodes (signals, fields, operators — global and per-entity)
+        for (_path, node) in world.nodes.iter() {
             if node.span.start as usize <= offset && offset <= node.span.end as usize {
                 return Ok(Some(format_hover_from_node(node)));
             }
@@ -243,7 +220,7 @@ impl LanguageServer for Backend {
         let mut items = Vec::new();
 
         // Add all globals as completion items
-        for (_path, node) in world.globals.iter() {
+        for (_path, node) in world.nodes.iter() {
             let role_name = node.role_id().spec().name;
 
             let kind = match node.role_id() {
@@ -327,36 +304,20 @@ impl LanguageServer for Backend {
 
         let mut symbols = Vec::new();
 
-        // Add all globals (signals, fields, operators, etc.)
-        for (_path, node) in world.globals.iter() {
+        // Add all nodes (signals, fields, operators — both global and per-entity)
+        for (_path, node) in world.nodes.iter() {
             let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
             let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
 
-            #[allow(deprecated)]
-            symbols.push(SymbolInformation {
-                name: node.path.to_string(),
-                kind: role_to_lsp_symbol_kind(node.role_id()),
-                tags: None,
-                deprecated: None,
-                location: Location {
-                    uri: uri.clone(),
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                },
-                container_name: None,
-            });
-        }
-
-        // Add all members
-        for (_path, node) in world.members.iter() {
-            let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
-            let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
+            let name = if node.entity.is_some() {
+                format!("{} (member)", node.path)
+            } else {
+                node.path.to_string()
+            };
 
             #[allow(deprecated)]
             symbols.push(SymbolInformation {
-                name: format!("{} (member)", node.path),
+                name,
                 kind: role_to_lsp_symbol_kind(node.role_id()),
                 tags: None,
                 deprecated: None,
@@ -414,7 +375,7 @@ impl LanguageServer for Backend {
         let mut locations = Vec::new();
 
         // Find the symbol at cursor
-        for (_path, node) in world.globals.iter() {
+        for (_path, node) in world.nodes.iter() {
             if node.span.start as usize <= offset && offset <= node.span.end as usize {
                 // Found the symbol - return its definition location
                 let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
@@ -465,7 +426,7 @@ impl LanguageServer for Backend {
         // 5: strata, 6: era, 7: impulse, 8: fracture, 9: chronicle, 10: entity, 11: keyword
 
         // Add tokens for all globals
-        for (_path, node) in world.globals.iter() {
+        for (_path, node) in world.nodes.iter() {
             let token_type = match node.role_id() {
                 continuum_cdsl::ast::RoleId::Signal => 0,
                 continuum_cdsl::ast::RoleId::Field => 1,
@@ -540,7 +501,7 @@ impl LanguageServer for Backend {
 
             // For each node in the world, find its file and create a symbol
             // Search globals
-            for (_path, node) in world.globals.iter() {
+            for (_path, node) in world.nodes.iter() {
                 let path_str = node.path.to_string().to_lowercase();
                 if query.is_empty() || path_str.contains(&query) {
                     // Get the file for this node
@@ -620,7 +581,7 @@ impl LanguageServer for Backend {
         let mut ranges = Vec::new();
 
         // Create folding ranges for all globals
-        for (_path, node) in world.globals.iter() {
+        for (_path, node) in world.nodes.iter() {
             let (start_line, _) = offset_to_position(&doc, node.span.start as usize);
             let (end_line, _) = offset_to_position(&doc, node.span.end as usize);
 
@@ -686,7 +647,7 @@ impl LanguageServer for Backend {
         let mut hints = Vec::new();
 
         // Add type hints for nodes with resolved output types
-        for (_path, node) in world.globals.iter() {
+        for (_path, node) in world.nodes.iter() {
             if let Some(ref output_type) = node.output {
                 let (line, col) = offset_to_position(&doc, node.span.end as usize);
 
@@ -726,7 +687,7 @@ impl LanguageServer for Backend {
         let offset = position_to_offset(&doc, position);
 
         // Check if cursor is on a renameable symbol
-        for (_path, node) in world.globals.iter() {
+        for (_path, node) in world.nodes.iter() {
             if node.span.start as usize <= offset && offset <= node.span.end as usize {
                 let (start_line, start_char) = offset_to_position(&doc, node.span.start as usize);
                 let (end_line, end_char) = offset_to_position(&doc, node.span.end as usize);
