@@ -24,9 +24,12 @@ use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::parse_declarations;
 use logos::Logos;
 
-/// Helper to parse declarations from source.
+/// Helper to parse declarations from source with real byte spans.
 fn parse(source: &str) -> Vec<Declaration> {
-    let tokens: Vec<Token> = Token::lexer(source).filter_map(Result::ok).collect();
+    let tokens: Vec<_> = Token::lexer(source)
+        .spanned()
+        .filter_map(|(r, s)| r.ok().map(|t| (t, s)))
+        .collect();
     parse_declarations(&tokens, 0).expect("Parse failed")
 }
 

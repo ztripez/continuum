@@ -58,7 +58,7 @@ pub use continuum_cdsl_lexer::Token;
 
 // Re-export parser
 pub use continuum_cdsl_parser as parser;
-pub use continuum_cdsl_parser::{parse_declarations, parse_expr, ParseError};
+pub use continuum_cdsl_parser::ParseError;
 
 // Re-export resolve
 // Note: `error` module exists in both ast and resolve; we alias resolve

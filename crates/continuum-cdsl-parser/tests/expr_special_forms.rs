@@ -21,7 +21,10 @@ use logos::Logos;
 /// Helper to test that an expression parses successfully in a signal resolve block.
 fn assert_expr_parses(expr: &str) {
     let source = format!("signal test {{ resolve {{ {} }} }}", expr);
-    let tokens: Vec<Token> = Token::lexer(&source).filter_map(Result::ok).collect();
+    let tokens: Vec<_> = Token::lexer(&source)
+        .spanned()
+        .filter_map(|(r, s)| r.ok().map(|t| (t, s)))
+        .collect();
 
     let result = parse_declarations(&tokens, 0);
     assert!(

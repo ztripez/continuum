@@ -18,7 +18,10 @@ use logos::Logos;
 /// Helper to test that a type expression parses successfully in a type declaration.
 fn assert_type_parses(type_str: &str) {
     let source = format!("type Test {{ value: {} }}", type_str);
-    let tokens: Vec<Token> = Token::lexer(&source).filter_map(Result::ok).collect();
+    let tokens: Vec<_> = Token::lexer(&source)
+        .spanned()
+        .filter_map(|(r, s)| r.ok().map(|t| (t, s)))
+        .collect();
 
     let result = parse_declarations(&tokens, 0);
     assert!(

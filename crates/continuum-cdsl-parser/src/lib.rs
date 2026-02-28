@@ -8,10 +8,7 @@
 
 pub mod parser;
 
-pub use parser::{
-    parse_declarations, parse_declarations_with_spans, parse_expr, parse_expr_with_spans,
-    ParseError,
-};
+pub use parser::{parse_declarations, parse_expr, ParseError};
 
 // Re-export lexer
 pub use continuum_cdsl_lexer::Token;

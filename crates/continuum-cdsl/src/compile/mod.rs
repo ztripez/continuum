@@ -7,7 +7,7 @@
 use crate::ast::{CompiledWorld, SourceMap, Span};
 use crate::resolve::pipeline;
 use crate::Token;
-use continuum_cdsl_parser::parse_declarations_with_spans;
+use continuum_cdsl_parser::parse_declarations;
 use continuum_cdsl_resolve::error::ErrorKind;
 use continuum_cdsl_resolve::CompileError;
 use indexmap::IndexMap;
@@ -161,7 +161,7 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
 
         // Parsing
         eprintln!("    Parsing {} tokens...", tokens_with_spans.len());
-        match parse_declarations_with_spans(&tokens_with_spans, file_id) {
+        match parse_declarations(&tokens_with_spans, file_id) {
             Ok(decls) => {
                 eprintln!("    Parsed {} declarations", decls.len());
                 declarations.extend(decls)
@@ -286,7 +286,7 @@ pub fn compile_from_memory(sources: IndexMap<PathBuf, String>) -> CompileResultW
 
         // Parsing
         eprintln!("    Parsing {} tokens...", tokens_with_spans.len());
-        match parse_declarations_with_spans(&tokens_with_spans, file_id) {
+        match parse_declarations(&tokens_with_spans, file_id) {
             Ok(decls) => {
                 eprintln!("    Parsed {} declarations", decls.len());
                 declarations.extend(decls)

@@ -17,9 +17,12 @@ use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::parse_expr;
 use logos::Logos;
 
-/// Helper to parse an expression from source.
+/// Helper to parse an expression from source with real byte spans.
 fn parse(source: &str) -> Expr {
-    let tokens: Vec<Token> = Token::lexer(source).filter_map(Result::ok).collect();
+    let tokens: Vec<_> = Token::lexer(source)
+        .spanned()
+        .filter_map(|(r, s)| r.ok().map(|t| (t, s)))
+        .collect();
     parse_expr(&tokens, 0).expect("Parse failed")
 }
 

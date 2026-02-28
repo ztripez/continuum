@@ -12,9 +12,17 @@ use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::{parse_declarations, ParseError};
 use logos::Logos;
 
+/// Lex source into tokens with real byte spans.
+fn lex_spanned(source: &str) -> Vec<(Token, std::ops::Range<usize>)> {
+    Token::lexer(source)
+        .spanned()
+        .filter_map(|(r, s)| r.ok().map(|t| (t, s)))
+        .collect()
+}
+
 /// Helper to verify that parsing fails with at least one error.
 fn expect_error(source: &str) -> Vec<ParseError> {
-    let tokens: Vec<Token> = Token::lexer(source).filter_map(Result::ok).collect();
+    let tokens = lex_spanned(source);
     match parse_declarations(&tokens, 0) {
         Ok(_) => panic!("Expected parse error, but parsing succeeded"),
         Err(errors) => {
@@ -26,7 +34,7 @@ fn expect_error(source: &str) -> Vec<ParseError> {
 
 /// Helper for tests that expect success.
 fn parse_ok(source: &str) -> Vec<Declaration> {
-    let tokens: Vec<Token> = Token::lexer(source).filter_map(Result::ok).collect();
+    let tokens = lex_spanned(source);
     parse_declarations(&tokens, 0).expect("Parse should succeed")
 }
 
@@ -385,7 +393,7 @@ fn test_span_accuracy_with_spans() {
     }
 
     // Parse with accurate spans
-    let result = continuum_cdsl_parser::parse_declarations_with_spans(&tokens_with_spans, 0);
+    let result = continuum_cdsl_parser::parse_declarations(&tokens_with_spans, 0);
 
     // Should succeed since this is actually valid syntax (identifier in expression)
     assert!(result.is_ok(), "This is valid syntax");
@@ -407,7 +415,7 @@ fn test_span_points_to_actual_error() {
         }
     }
 
-    let result = continuum_cdsl_parser::parse_declarations_with_spans(&tokens_with_spans, 0);
+    let result = continuum_cdsl_parser::parse_declarations(&tokens_with_spans, 0);
 
     // Should fail
     assert!(result.is_err(), "Should have parse error");
@@ -452,9 +460,7 @@ fn test_unicode_source_graceful_handling() {
 
     // This should parse successfully (invalid identifier is caught at lex)
     // OR fail gracefully (not crash or panic)
-    let tokens: Vec<continuum_cdsl_lexer::Token> = continuum_cdsl_lexer::Token::lexer(source)
-        .filter_map(Result::ok)
-        .collect();
+    let tokens = lex_spanned(source);
 
     // Verify we don't panic on unicode (accept either success or error)
     let _result = continuum_cdsl_parser::parse_declarations(&tokens, 0);

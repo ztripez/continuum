@@ -12,18 +12,15 @@ use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::parse_declarations;
 use logos::Logos;
 
-/// Helper: lex source and collect tokens, returning error on lexer failure
-fn lex(source: &str) -> Result<Vec<Token>, String> {
-    let results: Vec<Result<Token, ()>> = Token::lexer(source).collect();
-
+/// Helper: lex source and collect tokens with byte spans, returning error on lexer failure
+fn lex(source: &str) -> Result<Vec<(Token, std::ops::Range<usize>)>, String> {
     let mut tokens = Vec::new();
-    for (i, result) in results.iter().enumerate() {
+    for (i, (result, span)) in Token::lexer(source).spanned().enumerate() {
         match result {
-            Ok(token) => tokens.push(token.clone()),
+            Ok(token) => tokens.push((token, span)),
             Err(_) => return Err(format!("Lexer error at token {}", i)),
         }
     }
-
     Ok(tokens)
 }
 
