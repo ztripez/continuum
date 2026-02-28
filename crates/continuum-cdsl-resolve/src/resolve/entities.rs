@@ -81,52 +81,7 @@ pub(crate) fn flatten_entity_members(
 
     for decl in declarations {
         if let Declaration::Entity(ref entity) = decl {
-            // Extract topology from entity attributes (if present)
-            let topology = crate::resolve::attributes::extract_topology(
-                &entity.attributes,
-                entity.span,
-                errors,
-            );
-
-            // Create modified entity with topology populated
-            let mut modified_entity = entity.clone();
-            modified_entity.topology = topology;
-
-            // Keep the entity declaration (with topology populated)
-            flattened.push(Declaration::Entity(modified_entity));
-
-            // Extract stratum from entity attributes (if present)
-            let entity_stratum =
-                extract_single_path(&entity.attributes, "stratum", entity.span, errors);
-
-            // Flatten each nested member
-            for member in &entity.members {
-                let mut flattened_member = member.clone();
-
-                // Build full path: entity.path + member.path
-                let mut full_segments = entity.path.segments.clone();
-                full_segments.extend(member.path.segments.clone());
-                flattened_member.path = Path::new(full_segments);
-
-                // Entity stratum provides default: inherit if member doesn't have one
-                // This allows entity-level convenience while permitting member-level specificity
-                if !has_attribute(&flattened_member.attributes, "stratum")
-                    && let Some(ref stratum_path) = entity_stratum {
-                        // Add entity's stratum attribute to member
-                        let stratum_attr = Attribute {
-                            name: "stratum".to_string(),
-                            args: vec![Expr::new(
-                                UntypedKind::Signal(stratum_path.clone()),
-                                member.span,
-                            )],
-                            span: member.span,
-                        };
-                        flattened_member.attributes.push(stratum_attr);
-                    }
-
-                // Add as member declaration
-                flattened.push(Declaration::Member(flattened_member));
-            }
+            flatten_entity_recursive(entity, &mut flattened, errors);
         } else {
             // Keep non-entity declarations as-is
             flattened.push(decl);
@@ -134,6 +89,79 @@ pub(crate) fn flatten_entity_members(
     }
 
     flattened
+}
+
+/// Recursively flatten an entity and all its children into declarations.
+///
+/// For each entity:
+/// 1. Emits `Declaration::Entity` (with topology populated)
+/// 2. Emits `Declaration::Member` for each nested member (with full paths)
+/// 3. Recurses into child entities
+///
+/// Child entity paths are prefixed with the parent entity path, and child
+/// members receive the full path chain (grandparent.parent.child.member).
+fn flatten_entity_recursive(
+    entity: &continuum_cdsl_ast::Entity,
+    flattened: &mut Vec<Declaration>,
+    errors: &mut Vec<CompileError>,
+) {
+    // Extract topology from entity attributes (if present)
+    let topology =
+        crate::resolve::attributes::extract_topology(&entity.attributes, entity.span, errors);
+
+    // Create modified entity with topology populated
+    let mut modified_entity = entity.clone();
+    modified_entity.topology = topology;
+
+    // Keep the entity declaration (with topology populated)
+    flattened.push(Declaration::Entity(modified_entity));
+
+    // Extract stratum from entity attributes (if present)
+    let entity_stratum =
+        extract_single_path(&entity.attributes, "stratum", entity.span, errors);
+
+    // Flatten each nested member
+    for member in &entity.members {
+        let mut flattened_member = member.clone();
+
+        // Build full path: entity.path + member.path
+        let mut full_segments = entity.path.segments.clone();
+        full_segments.extend(member.path.segments.clone());
+        flattened_member.path = Path::new(full_segments);
+
+        // Entity stratum provides default: inherit if member doesn't have one
+        // This allows entity-level convenience while permitting member-level specificity
+        if !has_attribute(&flattened_member.attributes, "stratum")
+            && let Some(ref stratum_path) = entity_stratum
+        {
+            // Add entity's stratum attribute to member
+            let stratum_attr = Attribute {
+                name: "stratum".to_string(),
+                args: vec![Expr::new(
+                    UntypedKind::Signal(stratum_path.clone()),
+                    member.span,
+                )],
+                span: member.span,
+            };
+            flattened_member.attributes.push(stratum_attr);
+        }
+
+        // Add as member declaration
+        flattened.push(Declaration::Member(flattened_member));
+    }
+
+    // Recurse into child entities
+    for (_path, child) in &entity.children {
+        // Build child's full path: parent.path + child.path
+        let mut child_with_full_path = child.clone();
+        let mut full_segments = entity.path.segments.clone();
+        full_segments.extend(child.path.segments.clone());
+        child_with_full_path.path = Path::new(full_segments.clone());
+        child_with_full_path.id =
+            continuum_cdsl_ast::foundation::EntityId::new(child_with_full_path.path.to_string());
+
+        flatten_entity_recursive(&child_with_full_path, flattened, errors);
+    }
 }
 
 #[cfg(test)]
@@ -543,6 +571,137 @@ mod tests {
             assert!(test_errors.is_empty());
         } else {
             panic!("Expected Declaration::Member at index 3");
+        }
+    }
+
+    #[test]
+    fn test_flatten_entity_with_child_entities() {
+        let span = test_span();
+        let mut parent = Entity::new(
+            EntityId::new("plate"),
+            Path::from_path_str("plate"),
+            span,
+        );
+
+        // Parent has a member
+        let parent_member = Node::new(
+            Path::from_path_str("age"),
+            span,
+            RoleData::Signal,
+            Some(EntityId::new("plate")),
+        );
+        parent.members.push(parent_member);
+
+        // Child entity with its own member
+        let mut child = Entity::new(
+            EntityId::new("boundary"),
+            Path::from_path_str("boundary"),
+            span,
+        );
+        let child_member = Node::new(
+            Path::from_path_str("stress"),
+            span,
+            RoleData::Signal,
+            Some(EntityId::new("boundary")),
+        );
+        child.members.push(child_member);
+        parent
+            .children
+            .insert(child.path.clone(), child);
+
+        let declarations = vec![Declaration::Entity(parent)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        assert!(errors.is_empty());
+
+        // Expected: parent entity, parent member, child entity, child member
+        assert_eq!(flattened.len(), 4);
+
+        // [0] parent entity
+        assert!(matches!(flattened[0], Declaration::Entity(_)));
+        if let Declaration::Entity(e) = &flattened[0] {
+            assert_eq!(e.path, Path::from_path_str("plate"));
+        }
+
+        // [1] parent member with full path
+        assert!(matches!(flattened[1], Declaration::Member(_)));
+        if let Declaration::Member(m) = &flattened[1] {
+            assert_eq!(m.path, Path::from_path_str("plate.age"));
+        }
+
+        // [2] child entity with full path
+        assert!(matches!(flattened[2], Declaration::Entity(_)));
+        if let Declaration::Entity(e) = &flattened[2] {
+            assert_eq!(e.path, Path::from_path_str("plate.boundary"));
+        }
+
+        // [3] child member with full path
+        assert!(matches!(flattened[3], Declaration::Member(_)));
+        if let Declaration::Member(m) = &flattened[3] {
+            assert_eq!(m.path, Path::from_path_str("plate.boundary.stress"));
+        }
+    }
+
+    #[test]
+    fn test_flatten_deeply_nested_entities() {
+        let span = test_span();
+
+        // Build: planet > continent > region (with member)
+        let mut region = Entity::new(
+            EntityId::new("region"),
+            Path::from_path_str("region"),
+            span,
+        );
+        let region_member = Node::new(
+            Path::from_path_str("population"),
+            span,
+            RoleData::Signal,
+            Some(EntityId::new("region")),
+        );
+        region.members.push(region_member);
+
+        let mut continent = Entity::new(
+            EntityId::new("continent"),
+            Path::from_path_str("continent"),
+            span,
+        );
+        continent
+            .children
+            .insert(region.path.clone(), region);
+
+        let mut planet = Entity::new(
+            EntityId::new("planet"),
+            Path::from_path_str("planet"),
+            span,
+        );
+        planet
+            .children
+            .insert(continent.path.clone(), continent);
+
+        let declarations = vec![Declaration::Entity(planet)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        assert!(errors.is_empty());
+
+        // Expected: planet entity, continent entity, region entity, region member
+        assert_eq!(flattened.len(), 4);
+
+        if let Declaration::Entity(e) = &flattened[0] {
+            assert_eq!(e.path, Path::from_path_str("planet"));
+        }
+        if let Declaration::Entity(e) = &flattened[1] {
+            assert_eq!(e.path, Path::from_path_str("planet.continent"));
+        }
+        if let Declaration::Entity(e) = &flattened[2] {
+            assert_eq!(e.path, Path::from_path_str("planet.continent.region"));
+        }
+        if let Declaration::Member(m) = &flattened[3] {
+            assert_eq!(
+                m.path,
+                Path::from_path_str("planet.continent.region.population")
+            );
         }
     }
 }

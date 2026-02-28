@@ -34,11 +34,22 @@ pub fn parse_declarations(stream: &mut TokenStream) -> Result<Vec<Declaration>, 
             break;
         }
 
-        match parse_declaration(stream) {
-            Ok(decl) => declarations.push(decl),
-            Err(e) => {
-                errors.push(e);
-                stream.synchronize(); // Skip to next declaration
+        // World declarations can emit multiple declarations (world metadata + body content)
+        if matches!(stream.peek(), Some(Token::World)) {
+            match world::parse_world(stream) {
+                Ok(decls) => declarations.extend(decls),
+                Err(e) => {
+                    errors.push(e);
+                    stream.synchronize();
+                }
+            }
+        } else {
+            match parse_declaration(stream) {
+                Ok(decl) => declarations.push(decl),
+                Err(e) => {
+                    errors.push(e);
+                    stream.synchronize();
+                }
             }
         }
     }
@@ -51,9 +62,11 @@ pub fn parse_declarations(stream: &mut TokenStream) -> Result<Vec<Declaration>, 
 }
 
 /// Parse a single declaration (keyword-dispatched).
+///
+/// World declarations are handled separately in `parse_declarations()` because
+/// they can emit multiple declarations (world metadata + body content).
 fn parse_declaration(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     match stream.peek() {
-        Some(Token::World) => world::parse_world(stream),
         Some(Token::Signal) => primitives::parse_signal(stream),
         Some(Token::Field) => primitives::parse_field(stream),
         Some(Token::Operator) => primitives::parse_operator(stream),
@@ -62,6 +75,7 @@ fn parse_declaration(stream: &mut TokenStream) -> Result<Declaration, ParseError
         Some(Token::Chronicle) => primitives::parse_chronicle(stream),
         Some(Token::Analyzer) => parse_analyzer_stub(stream),
         Some(Token::Entity) => entities::parse_entity(stream),
+        Some(Token::Member) => entities::parse_member(stream),
         Some(Token::Strata) => time::parse_stratum(stream),
         Some(Token::Era) => time::parse_era(stream),
         Some(Token::Type) => definitions::parse_type_decl(stream),

@@ -1,4 +1,12 @@
 //! World declaration and policy parsing.
+//!
+//! The world body can contain:
+//! - Attributes (`:name` or `:name(args)`)
+//! - Warmup and policy blocks
+//! - Declarations: signals, fields, operators, entities, strata, eras
+//!
+//! Body declarations are emitted as separate `Declaration` variants alongside
+//! the `Declaration::World` for pipeline compatibility.
 
 use super::{parse_attribute, parse_attributes, ParseError, TokenStream};
 use continuum_cdsl_ast::foundation::{DeterminismPolicy, FaultPolicy, WorldPolicy};
@@ -6,10 +14,13 @@ use continuum_cdsl_ast::{Declaration, RawWarmupPolicy};
 use continuum_cdsl_lexer::Token;
 use std::rc::Rc;
 
-/// Parse world declaration.
+/// Parse world declaration with optional body declarations.
 ///
-/// Syntax: `world path { ... }`
-pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
+/// Returns a vec of declarations: the `Declaration::World` metadata first,
+/// followed by any body declarations (signals, entities, strata, eras, etc.).
+///
+/// Syntax: `world path { [attributes] [warmup] [policy] [declarations...] }`
+pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Vec<Declaration>, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::World)?;
 
@@ -23,6 +34,7 @@ pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, Parse
     // Parse body content
     let mut warmup = None;
     let mut policy = WorldPolicy::default();
+    let mut body_declarations = Vec::new();
 
     while !matches!(stream.peek(), Some(Token::RBrace)) {
         match stream.peek() {
@@ -34,6 +46,34 @@ pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, Parse
             }
             Some(Token::Policy) => {
                 policy = parse_policy_block(stream)?;
+            }
+            // Body declarations — emitted as separate Declaration variants
+            Some(Token::Signal) => {
+                body_declarations.push(super::primitives::parse_signal(stream)?);
+            }
+            Some(Token::Field) => {
+                body_declarations.push(super::primitives::parse_field(stream)?);
+            }
+            Some(Token::Operator) => {
+                body_declarations.push(super::primitives::parse_operator(stream)?);
+            }
+            Some(Token::Impulse) => {
+                body_declarations.push(super::primitives::parse_impulse(stream)?);
+            }
+            Some(Token::Fracture) => {
+                body_declarations.push(super::primitives::parse_fracture(stream)?);
+            }
+            Some(Token::Chronicle) => {
+                body_declarations.push(super::primitives::parse_chronicle(stream)?);
+            }
+            Some(Token::Entity) => {
+                body_declarations.push(super::entities::parse_entity(stream)?);
+            }
+            Some(Token::Strata) => {
+                body_declarations.push(super::time::parse_stratum(stream)?);
+            }
+            Some(Token::Era) => {
+                body_declarations.push(super::time::parse_era(stream)?);
             }
             other => {
                 return Err(ParseError::unexpected_token(
@@ -66,7 +106,8 @@ pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, Parse
         }
     }
 
-    Ok(Declaration::World(continuum_cdsl_ast::WorldDecl {
+    // World metadata declaration comes first
+    let mut result = vec![Declaration::World(continuum_cdsl_ast::WorldDecl {
         path,
         title,
         version,
@@ -76,7 +117,12 @@ pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, Parse
         doc: None,
         debug: false,
         policy,
-    }))
+    })];
+
+    // Body declarations follow
+    result.extend(body_declarations);
+
+    Ok(result)
 }
 
 /// Parse warmup policy block.

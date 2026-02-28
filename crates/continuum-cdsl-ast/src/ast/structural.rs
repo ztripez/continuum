@@ -16,6 +16,7 @@ use crate::ast::declaration::Attribute;
 use crate::ast::expr::TypedExpr;
 use crate::ast::node::Node;
 use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, StratumId};
+use indexmap::IndexMap;
 
 // =============================================================================
 // Topology Expressions
@@ -132,11 +133,17 @@ pub struct Entity {
     /// Topology is frozen in Configure phase and used for spatial.* kernel queries.
     pub topology: Option<TopologyExpr>,
 
-    /// Nested member primitives (signals, fields, fractures, impulses)
+    /// Nested member primitives (signals, fields, fractures, impulses, operators)
     ///
     /// Parsed from nested declarations inside entity braces.
     /// These are flattened into `World.members` during resolution.
     pub members: Vec<Node>,
+
+    /// Child entities nested inside this entity
+    ///
+    /// Enables recursive entity hierarchies. Child entities inherit
+    /// their parent's namespace path. Flattened during resolution.
+    pub children: IndexMap<Path, Entity>,
 }
 
 impl Entity {
@@ -150,6 +157,7 @@ impl Entity {
             attributes: Vec::new(),
             topology: None,
             members: Vec::new(),
+            children: IndexMap::new(),
         }
     }
 }

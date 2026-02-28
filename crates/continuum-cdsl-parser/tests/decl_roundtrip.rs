@@ -834,3 +834,213 @@ fn test_assertion_with_empty_string_message() {
         _ => panic!("Expected Node"),
     }
 }
+
+// =============================================================================
+// Entity-First Architecture (Wave 1)
+// =============================================================================
+
+#[test]
+fn test_entity_with_nested_members() {
+    let source = r#"
+        entity plate {
+            signal velocity {
+                resolve { 0.0 }
+            }
+            field stress {
+                measure { 0.0 }
+            }
+            operator apply_friction {
+                resolve { 0.0 }
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Entity(entity) => {
+            assert_eq!(entity.path.to_string(), "plate");
+            assert_eq!(entity.members.len(), 3);
+            assert!(matches!(entity.members[0].role, RoleData::Signal));
+            assert!(matches!(entity.members[1].role, RoleData::Field { .. }));
+            assert!(matches!(entity.members[2].role, RoleData::Operator));
+        }
+        _ => panic!("Expected Entity declaration"),
+    }
+}
+
+#[test]
+fn test_entity_with_nested_child_entity() {
+    let source = r#"
+        entity plate {
+            signal age {
+                resolve { 0.0 }
+            }
+            entity boundary {
+                signal stress {
+                    resolve { 0.0 }
+                }
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Entity(entity) => {
+            assert_eq!(entity.path.to_string(), "plate");
+            assert_eq!(entity.members.len(), 1);
+            assert_eq!(entity.children.len(), 1);
+
+            let child = entity.children.values().next().expect("should have child");
+            assert_eq!(child.path.to_string(), "boundary");
+            assert_eq!(child.members.len(), 1);
+        }
+        _ => panic!("Expected Entity declaration"),
+    }
+}
+
+#[test]
+fn test_entity_with_deeply_nested_children() {
+    let source = r#"
+        entity planet {
+            entity continent {
+                entity region {
+                    signal population {
+                        resolve { 0.0 }
+                    }
+                }
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Entity(entity) => {
+            assert_eq!(entity.path.to_string(), "planet");
+            assert_eq!(entity.children.len(), 1);
+
+            let continent = entity.children.values().next().expect("continent");
+            assert_eq!(continent.path.to_string(), "continent");
+            assert_eq!(continent.children.len(), 1);
+
+            let region = continent.children.values().next().expect("region");
+            assert_eq!(region.path.to_string(), "region");
+            assert_eq!(region.members.len(), 1);
+        }
+        _ => panic!("Expected Entity declaration"),
+    }
+}
+
+#[test]
+fn test_world_with_body_declarations() {
+    let source = r#"
+        world terra {
+            : title("Terra")
+
+            signal temperature {
+                resolve { 300.0 }
+            }
+
+            entity plate {
+                signal velocity {
+                    resolve { 0.0 }
+                }
+            }
+
+            strata tectonics {
+                : stride(1)
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+
+    // World metadata + signal + entity + stratum = 4 declarations
+    assert_eq!(decls.len(), 4);
+    assert!(matches!(decls[0], Declaration::World(_)));
+    assert!(matches!(decls[1], Declaration::Node(_)));
+    assert!(matches!(decls[2], Declaration::Entity(_)));
+    assert!(matches!(decls[3], Declaration::Stratum(_)));
+
+    if let Declaration::World(world) = &decls[0] {
+        assert_eq!(world.title.as_deref(), Some("Terra"));
+    }
+}
+
+#[test]
+fn test_world_with_era_in_body() {
+    let source = r#"
+        world terra {
+            era formation {
+                : initial
+                : dt(1000000.0)
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 2);
+    assert!(matches!(decls[0], Declaration::World(_)));
+    assert!(matches!(decls[1], Declaration::Era(_)));
+}
+
+#[test]
+fn test_standalone_member_keyword() {
+    let source = r#"
+        member plate.velocity {
+            resolve { 0.0 }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Member(node) => {
+            // Member path should be just "velocity" (entity prefix stripped)
+            assert_eq!(node.path.to_string(), "velocity");
+            // Entity should be "plate"
+            assert_eq!(
+                node.entity
+                    .as_ref()
+                    .expect("should have entity")
+                    .to_string(),
+                "plate"
+            );
+            assert!(matches!(node.role, RoleData::Signal));
+        }
+        _ => panic!("Expected Member declaration"),
+    }
+}
+
+#[test]
+fn test_standalone_member_with_dotted_path() {
+    let source = r#"
+        member plate.physics.velocity {
+            resolve { 0.0 }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Member(node) => {
+            // Member path should be "physics.velocity" (first segment is entity)
+            assert_eq!(node.path.to_string(), "physics.velocity");
+            assert_eq!(
+                node.entity
+                    .as_ref()
+                    .expect("should have entity")
+                    .to_string(),
+                "plate"
+            );
+        }
+        _ => panic!("Expected Member declaration"),
+    }
+}
