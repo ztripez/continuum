@@ -7,7 +7,10 @@
 //! the simulation thread. The proxy methods block on crossbeam channel replies,
 //! which is fine because handlers run on `spawn_blocking` threads.
 
-use crate::ipc_types::{AssertionInfo, FieldInfo, ImpulseInfo, SignalInfo};
+use crate::ipc_types::{
+    AssertionInfo, FieldInfo, FieldSampleData, FieldSampleEntry, ImpulseInfo, SignalHistoryData,
+    SignalHistoryEntry, SignalInfo,
+};
 use crate::world_api::{WorldRequest, WorldResponse};
 use continuum_cdsl::ast::{Domain, RoleData, RoleId};
 
@@ -550,6 +553,81 @@ impl RequestHandler for SignalGetHandler {
     }
 }
 
+pub(crate) struct SignalHistoryHandler;
+
+impl RequestHandler for SignalHistoryHandler {
+    fn kind(&self) -> &'static str {
+        "signal.history"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        let signal_id = match req.payload.get("signal_id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Missing 'signal_id' parameter".to_string()),
+                };
+            }
+        };
+
+        let history = match state.sim.signal_history() {
+            Some(h) => h,
+            None => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: true,
+                    payload: Some(
+                        serde_json::to_value(SignalHistoryData {
+                            signal_id: signal_id.to_string(),
+                            entries: vec![],
+                        })
+                        .unwrap_or(serde_json::Value::Null),
+                    ),
+                    error: None,
+                };
+            }
+        };
+
+        let entries: Vec<SignalHistoryEntry> = history
+            .get(signal_id)
+            .map(|points| {
+                points
+                    .iter()
+                    .map(|p| SignalHistoryEntry {
+                        tick: p.tick,
+                        sim_time: p.sim_time,
+                        scalar: p.value.as_scalar(),
+                        value: serde_json::to_value(&p.value).unwrap_or(serde_json::Value::Null),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let data = SignalHistoryData {
+            signal_id: signal_id.to_string(),
+            entries,
+        };
+
+        match serde_json::to_value(data) {
+            Ok(payload) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Serialization error: {}", e)),
+            },
+        }
+    }
+}
+
 // ============================================================================
 // Field Handlers
 // ============================================================================
@@ -642,6 +720,84 @@ impl RequestHandler for FieldDescribeHandler {
         };
 
         match serde_json::to_value(info) {
+            Ok(payload) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Serialization error: {}", e)),
+            },
+        }
+    }
+}
+
+pub(crate) struct FieldSamplesHandler;
+
+impl RequestHandler for FieldSamplesHandler {
+    fn kind(&self) -> &'static str {
+        "field.samples"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        let field_id = match req.payload.get("field_id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Missing 'field_id' parameter".to_string()),
+                };
+            }
+        };
+
+        // Read the latest field snapshot from the shared buffer
+        let snapshot = match state.sim.field_snapshot() {
+            Some(s) => s,
+            None => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: true,
+                    payload: Some(serde_json::json!(FieldSampleData {
+                        field_id: field_id.to_string(),
+                        tick: 0,
+                        sim_time: 0.0,
+                        samples: vec![],
+                    })),
+                    error: None,
+                };
+            }
+        };
+
+        let field_key = continuum_foundation::FieldId::from(field_id.to_string());
+        let entries: Vec<FieldSampleEntry> = snapshot
+            .samples
+            .get(&field_key)
+            .map(|samples| {
+                samples
+                    .iter()
+                    .map(|s| FieldSampleEntry {
+                        position: s.position,
+                        scalar: s.value.as_scalar(),
+                        value: serde_json::to_value(&s.value).unwrap_or(serde_json::Value::Null),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let data = FieldSampleData {
+            field_id: field_id.to_string(),
+            tick: snapshot.tick,
+            sim_time: snapshot.sim_time,
+            samples: entries,
+        };
+
+        match serde_json::to_value(data) {
             Ok(payload) => WorldResponse {
                 id: req.id,
                 ok: true,

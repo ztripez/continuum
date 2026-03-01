@@ -135,6 +135,63 @@ pub struct FieldSnapshot {
     pub samples: IndexMap<FieldId, Vec<FieldSample>>,
 }
 
+/// Default capacity for the signal history ring buffer.
+const SIGNAL_HISTORY_CAPACITY: usize = 500;
+
+/// A single point in a signal's time-series history.
+#[derive(Debug, Clone)]
+pub struct SignalHistoryPoint {
+    /// Tick when this value was recorded.
+    pub tick: u64,
+    /// Simulation time when this value was recorded.
+    pub sim_time: f64,
+    /// The signal's resolved value at this tick.
+    pub value: Value,
+}
+
+/// Ring buffer of signal values across ticks.
+///
+/// Written by the sim thread after each tick for all resolved signals.
+/// Read by IPC handlers for `signal.history` requests.
+/// Fixed capacity — oldest entries are evicted when full.
+#[derive(Debug, Clone, Default)]
+pub struct SignalHistoryBuffer {
+    /// Per-signal ring buffers, keyed by signal path.
+    pub signals: IndexMap<String, Vec<SignalHistoryPoint>>,
+    /// Maximum entries per signal.
+    pub capacity: usize,
+}
+
+impl SignalHistoryBuffer {
+    /// Create a new history buffer with default capacity.
+    pub fn new() -> Self {
+        Self {
+            signals: IndexMap::new(),
+            capacity: SIGNAL_HISTORY_CAPACITY,
+        }
+    }
+
+    /// Record a signal value for the current tick.
+    ///
+    /// If the buffer for this signal is at capacity, the oldest entry is removed.
+    pub fn record(&mut self, signal_id: &str, tick: u64, sim_time: f64, value: Value) {
+        let entries = self.signals.entry(signal_id.to_string()).or_default();
+        if entries.len() >= self.capacity {
+            entries.remove(0);
+        }
+        entries.push(SignalHistoryPoint {
+            tick,
+            sim_time,
+            value,
+        });
+    }
+
+    /// Get history entries for a signal, oldest first.
+    pub fn get(&self, signal_id: &str) -> Option<&[SignalHistoryPoint]> {
+        self.signals.get(signal_id).map(|v| v.as_slice())
+    }
+}
+
 // ============================================================================
 // SimProxy
 // ============================================================================
@@ -152,6 +209,8 @@ pub struct SimProxy {
     cmd_tx: cbc::Sender<SimCommand>,
     /// Shared field snapshot — latest samples from the sim thread.
     field_snapshot: Arc<RwLock<FieldSnapshot>>,
+    /// Shared signal history — time-series across ticks.
+    signal_history: Arc<RwLock<SignalHistoryBuffer>>,
 }
 
 /// Error returned when the simulation thread has disconnected.
@@ -175,11 +234,13 @@ impl SimProxy {
         control_tx: cbc::Sender<ControlCommand>,
         cmd_tx: cbc::Sender<SimCommand>,
         field_snapshot: Arc<RwLock<FieldSnapshot>>,
+        signal_history: Arc<RwLock<SignalHistoryBuffer>>,
     ) -> Self {
         Self {
             control_tx,
             cmd_tx,
             field_snapshot,
+            signal_history,
         }
     }
 
@@ -301,5 +362,12 @@ impl SimProxy {
     /// serialization. Returns `None` if the lock is poisoned.
     pub fn field_snapshot(&self) -> Option<FieldSnapshot> {
         self.field_snapshot.read().ok().map(|guard| guard.clone())
+    }
+
+    /// Get a clone of the signal history buffer.
+    ///
+    /// Returns `None` if the lock is poisoned.
+    pub fn signal_history(&self) -> Option<SignalHistoryBuffer> {
+        self.signal_history.read().ok().map(|guard| guard.clone())
     }
 }

@@ -31,7 +31,8 @@
 //! via channel disconnection.
 
 use crate::sim_proxy::{
-    ControlCommand, FieldSnapshot, RestoreResult, SimCommand, SimProxy, SimStatus,
+    ControlCommand, FieldSnapshot, RestoreResult, SignalHistoryBuffer, SimCommand, SimProxy,
+    SimStatus,
 };
 use crate::world_api::WorldEvent;
 use continuum_runtime::Runtime;
@@ -88,12 +89,24 @@ impl SimThread {
             Arc::new(RwLock::new(FieldSnapshot::default()));
         let field_snapshot_writer = field_snapshot.clone();
 
-        let proxy = SimProxy::new(control_tx, cmd_tx, field_snapshot);
+        // Shared signal history — accumulated across ticks for time-series charts.
+        let signal_history: Arc<RwLock<SignalHistoryBuffer>> =
+            Arc::new(RwLock::new(SignalHistoryBuffer::new()));
+        let signal_history_writer = signal_history.clone();
+
+        let proxy = SimProxy::new(control_tx, cmd_tx, field_snapshot, signal_history);
 
         let handle = thread::Builder::new()
             .name("sim-thread".to_string())
             .spawn(move || {
-                sim_thread_main(runtime, control_rx, cmd_rx, event_tx, field_snapshot_writer)
+                sim_thread_main(
+                    runtime,
+                    control_rx,
+                    cmd_rx,
+                    event_tx,
+                    field_snapshot_writer,
+                    signal_history_writer,
+                )
             })
             .expect("failed to spawn simulation thread");
 
@@ -155,6 +168,7 @@ fn sim_thread_main(
     cmd_rx: cbc::Receiver<SimCommand>,
     event_tx: Option<broadcast::Sender<WorldEvent>>,
     field_snapshot: Arc<RwLock<FieldSnapshot>>,
+    signal_history: Arc<RwLock<SignalHistoryBuffer>>,
 ) -> Runtime {
     info!("Simulation thread started");
 
@@ -185,13 +199,20 @@ fn sim_thread_main(
                 }
 
                 // Drain all pending commands before ticking
-                drain_commands(&cmd_rx, &mut runtime, &event_tx, &field_snapshot);
+                drain_commands(
+                    &cmd_rx,
+                    &mut runtime,
+                    &event_tx,
+                    &field_snapshot,
+                    &signal_history,
+                );
 
                 // Execute tick
                 match runtime.execute_tick() {
                     Ok(tick_ctx) => {
                         trace!(tick = runtime.tick(), "Tick executed");
                         drain_fields_to_snapshot(&mut runtime, &field_snapshot);
+                        record_signal_history(&runtime, &signal_history);
                         emit_tick_event(&event_tx, &tick_ctx, &runtime, "running");
                     }
                     Err(e) => {
@@ -248,7 +269,7 @@ fn sim_thread_main(
                     }
                     recv(cmd_rx) -> msg => {
                         match msg {
-                            Ok(cmd) => handle_sim_cmd(cmd, &mut runtime, &event_tx, &field_snapshot),
+                            Ok(cmd) => handle_sim_cmd(cmd, &mut runtime, &event_tx, &field_snapshot, &signal_history),
                             Err(cbc::RecvError) => {
                                 info!("Command channel disconnected, shutting down");
                                 break;
@@ -345,9 +366,10 @@ fn drain_commands(
     runtime: &mut Runtime,
     event_tx: &Option<broadcast::Sender<WorldEvent>>,
     field_snapshot: &Arc<RwLock<FieldSnapshot>>,
+    signal_history: &Arc<RwLock<SignalHistoryBuffer>>,
 ) {
     while let Ok(cmd) = cmd_rx.try_recv() {
-        handle_sim_cmd(cmd, runtime, event_tx, field_snapshot);
+        handle_sim_cmd(cmd, runtime, event_tx, field_snapshot, signal_history);
     }
 }
 
@@ -358,6 +380,7 @@ fn handle_sim_cmd(
     runtime: &mut Runtime,
     event_tx: &Option<broadcast::Sender<WorldEvent>>,
     field_snapshot: &Arc<RwLock<FieldSnapshot>>,
+    signal_history: &Arc<RwLock<SignalHistoryBuffer>>,
 ) {
     match cmd {
         SimCommand::GetStatus { reply } => {
@@ -382,6 +405,7 @@ fn handle_sim_cmd(
                 match runtime.execute_tick() {
                     Ok(ctx) => {
                         drain_fields_to_snapshot(runtime, field_snapshot);
+                        record_signal_history(runtime, signal_history);
                         emit_tick_event(event_tx, &ctx, runtime, "stopped");
                         last_ctx = Some(ctx);
                     }
@@ -457,6 +481,35 @@ fn drain_fields_to_snapshot(runtime: &mut Runtime, field_snapshot: &Arc<RwLock<F
             // Recover from poisoned lock — snapshot data is non-critical
             warn!("Field snapshot lock was poisoned, recovering");
             *poisoned.into_inner() = snapshot;
+        }
+    }
+}
+
+/// Record current signal values into the shared history buffer.
+///
+/// Iterates over all global signals and records their current values.
+/// Called after every successful `execute_tick()`. This accumulates a
+/// time-series ring buffer that IPC handlers serve for line charts.
+fn record_signal_history(runtime: &Runtime, signal_history: &Arc<RwLock<SignalHistoryBuffer>>) {
+    let tick = runtime.tick();
+    let sim_time = runtime.sim_time();
+
+    let signal_names = runtime.member_signals().global_signal_names();
+    if signal_names.is_empty() {
+        return;
+    }
+
+    let mut guard = match signal_history.write() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            warn!("Signal history lock was poisoned, recovering");
+            poisoned.into_inner()
+        }
+    };
+
+    for name in signal_names {
+        if let Some(value) = runtime.member_signals().get_global(name) {
+            guard.record(name, tick, sim_time, value);
         }
     }
 }

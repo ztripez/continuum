@@ -154,8 +154,10 @@ impl RequestRouter {
         router.register(Box::new(SignalListHandler));
         router.register(Box::new(SignalDescribeHandler));
         router.register(Box::new(SignalGetHandler));
+        router.register(Box::new(SignalHistoryHandler));
         router.register(Box::new(FieldListHandler));
         router.register(Box::new(FieldDescribeHandler));
+        router.register(Box::new(FieldSamplesHandler));
         router.register(Box::new(EntityListHandler));
         router.register(Box::new(EntityDescribeHandler));
         router.register(Box::new(ImpulseListHandler));
