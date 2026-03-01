@@ -663,6 +663,7 @@ fn compile_bytecode_and_dags(
                     },
                     (RoleId::Field, Phase::Measure) => NodeKind::FieldEmit {
                         field_idx: block_idx,
+                        field_id: FieldId::from(path.to_string()),
                     },
                     (RoleId::Fracture, Phase::Fracture) => NodeKind::Fracture {
                         fracture_idx: block_idx,

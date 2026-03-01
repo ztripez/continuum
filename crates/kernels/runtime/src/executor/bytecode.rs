@@ -847,14 +847,11 @@ impl BytecodePhaseExecutor {
             for level in &dag.levels {
                 for node in &level.nodes {
                     match &node.kind {
-                        NodeKind::OperatorMeasure { operator_idx }
-                        | NodeKind::FieldEmit {
-                            field_idx: operator_idx,
-                        } => {
+                        NodeKind::OperatorMeasure { operator_idx } => {
                             let compiled = compiled_blocks.get(*operator_idx).ok_or_else(|| {
                                 Error::ExecutionFailure {
                                     message: format!(
-                                        "Missing bytecode block for measure {}",
+                                        "Missing bytecode block for measure operator {}",
                                         operator_idx
                                     ),
                                 }
@@ -885,6 +882,56 @@ impl BytecodePhaseExecutor {
                                     message: e.to_string(),
                                 }
                             })?;
+                        }
+                        NodeKind::FieldEmit {
+                            field_idx,
+                            field_id,
+                        } => {
+                            let compiled = compiled_blocks.get(*field_idx).ok_or_else(|| {
+                                Error::ExecutionFailure {
+                                    message: format!(
+                                        "Missing bytecode block for field emit {}",
+                                        field_idx
+                                    ),
+                                }
+                            })?;
+                            let mut inner_input_channels = InputChannels::default();
+                            let mut placeholder_fracture_queue = FractureQueue::default();
+                            let mut placeholder_event_buffer = EventBuffer::default();
+                            let mut ctx = VMContext::new(
+                                &config,
+                                Phase::Measure,
+                                era,
+                                dt,
+                                sim_time,
+                                entities,
+                                member_signals,
+                                &mut inner_input_channels,
+                                &mut placeholder_fracture_queue,
+                                field_buffer,
+                                &mut placeholder_event_buffer,
+                                None,
+                                None,
+                                None,
+                                None,
+                            );
+
+                            let result = executor.execute(compiled, &mut ctx).map_err(|e| {
+                                Error::ExecutionFailure {
+                                    message: e.to_string(),
+                                }
+                            })?;
+
+                            // Expression-body field measure blocks return a value
+                            // but don't contain explicit EmitField opcodes. Capture
+                            // the return value and emit it to the field buffer.
+                            if let Some(value) = result {
+                                if let Some(scalar) = value.as_scalar() {
+                                    field_buffer.emit_scalar(field_id.clone(), scalar);
+                                } else {
+                                    field_buffer.emit(field_id.clone(), [0.0, 0.0, 0.0], value);
+                                }
+                            }
                         }
                         NodeKind::SignalResolve { .. }
                         | NodeKind::OperatorCollect { .. }

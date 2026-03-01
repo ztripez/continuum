@@ -31,7 +31,7 @@
 use indexmap::IndexMap;
 
 use rayon::prelude::*;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument, trace, warn};
 
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
@@ -812,18 +812,30 @@ impl PhaseExecutor {
             return Ok(());
         }
 
-        // Collect all measure operators across all strata and levels
-        let all_operator_indices: Vec<usize> = eligible_dags
-            .iter()
-            .flat_map(|dag| {
-                dag.levels.iter().flat_map(|level| {
-                    level.nodes.iter().filter_map(|node| match &node.kind {
-                        NodeKind::OperatorMeasure { operator_idx } => Some(*operator_idx),
-                        _ => None,
-                    })
-                })
-            })
-            .collect();
+        // Collect all measure operators across all strata and levels.
+        // FieldEmit nodes are handled by the bytecode executor path.
+        // In the non-bytecode path, expression-body fields cannot be evaluated
+        // (they require VM execution), so we log a warning for any skipped nodes.
+        let mut all_operator_indices: Vec<usize> = Vec::new();
+        for dag in &eligible_dags {
+            for level in &dag.levels {
+                for node in &level.nodes {
+                    match &node.kind {
+                        NodeKind::OperatorMeasure { operator_idx } => {
+                            all_operator_indices.push(*operator_idx);
+                        }
+                        NodeKind::FieldEmit { field_id, .. } => {
+                            warn!(
+                                field = %field_id,
+                                "FieldEmit node skipped in non-bytecode measure path; \
+                                 expression-body fields require the bytecode executor"
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
 
         let total_operators = all_operator_indices.len();
 

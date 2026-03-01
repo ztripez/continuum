@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::reductions::ReductionOp;
-use crate::types::{EntityId, Phase, SignalId, StratumId};
+use crate::types::{EntityId, FieldId, Phase, SignalId, StratumId};
 use crate::vectorized::MemberSignalId;
 
 /// A single execution unit in the dependency graph.
@@ -77,6 +77,9 @@ pub enum NodeKind {
     FieldEmit {
         /// Index into the field emitter table.
         field_idx: usize,
+        /// The field being emitted, used to route expression-body results
+        /// into the field buffer when no explicit `EmitField` opcode exists.
+        field_id: FieldId,
     },
     /// Evaluate a fracture condition and potentially emit a response.
     Fracture {
