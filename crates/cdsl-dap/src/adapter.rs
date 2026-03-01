@@ -144,10 +144,10 @@ impl ContinuumDebugAdapter {
                         .filter_map(|e| e.ok())
                     {
                         let path = entry.path();
-                        if path.extension().is_some_and(|ext| ext == "cdsl") {
-                            if let Ok(content) = std::fs::read_to_string(path) {
-                                sources.insert(path.to_path_buf(), content);
-                            }
+                        if path.extension().is_some_and(|ext| ext == "cdsl")
+                            && let Ok(content) = std::fs::read_to_string(path)
+                        {
+                            sources.insert(path.to_path_buf(), content);
                         }
                     }
 
@@ -197,64 +197,63 @@ impl ContinuumDebugAdapter {
             Command::SetBreakpoints(ref args) => {
                 let mut verified_breakpoints = vec![];
                 let mut session_opt = self.session.lock().await;
-                if let Some(ref mut session) = *session_opt {
-                    if let Some(ref source) = args.source.path {
-                        let path = PathBuf::from(source);
-                        let requested_lines: Vec<usize> = args
-                            .breakpoints
-                            .as_ref()
-                            .map(|bs| bs.iter().map(|b| b.line as usize).collect())
-                            .unwrap_or_default();
+                if let Some(ref mut session) = *session_opt
+                    && let Some(ref source) = args.source.path
+                {
+                    let path = PathBuf::from(source);
+                    let requested_lines: Vec<usize> = args
+                        .breakpoints
+                        .as_ref()
+                        .map(|bs| bs.iter().map(|b| b.line as usize).collect())
+                        .unwrap_or_default();
 
-                        let lines: HashSet<usize> = requested_lines.iter().copied().collect();
-                        session.breakpoints.insert(path.clone(), lines.clone());
+                    let lines: HashSet<usize> = requested_lines.iter().copied().collect();
+                    session.breakpoints.insert(path.clone(), lines.clone());
 
-                        // Update runtime breakpoints and track which ones were set
-                        session.runtime.clear_breakpoints();
-                        let mut set_breakpoints: HashSet<usize> = HashSet::new();
+                    // Update runtime breakpoints and track which ones were set
+                    session.runtime.clear_breakpoints();
+                    let mut set_breakpoints: HashSet<usize> = HashSet::new();
 
-                        for (bp_path, bp_lines) in &session.breakpoints {
-                            for (path, node) in session.world.nodes.iter() {
-                                if let Some(ref node_file) = node.file {
-                                    if node_file == bp_path {
-                                        if let Some(source) = session.sources.get(node_file) {
-                                            let (line, _) =
-                                                offset_to_line_col(source, node.span.start as usize);
-                                            let line_1based = line as usize + 1;
-                                            if bp_lines.contains(&line_1based) {
-                                                let signal_id =
-                                                    continuum_foundation::SignalId::from(
-                                                        path.to_string(),
-                                                    );
-                                                session.runtime.add_breakpoint(signal_id);
-                                                set_breakpoints.insert(line_1based);
-                                            }
-                                        }
-                                    }
+                    for (bp_path, bp_lines) in &session.breakpoints {
+                        for (path, node) in session.world.nodes.iter() {
+                            if let Some(ref node_file) = node.file
+                                && node_file == bp_path
+                                && let Some(source) = session.sources.get(node_file)
+                            {
+                                let (line, _) =
+                                    offset_to_line_col(source, node.span.start as usize);
+                                let line_1based = line as usize + 1;
+                                if bp_lines.contains(&line_1based) {
+                                    let signal_id =
+                                        continuum_foundation::SignalId::from(
+                                            path.to_string(),
+                                        );
+                                    session.runtime.add_breakpoint(signal_id);
+                                    set_breakpoints.insert(line_1based);
                                 }
                             }
                         }
+                    }
 
-                        // Create breakpoint responses for each requested line
-                        for line in requested_lines {
-                            let verified = set_breakpoints.contains(&line);
-                            verified_breakpoints.push(dap::types::Breakpoint {
-                                id: Some(line as i64),
-                                verified,
-                                message: if !verified {
-                                    Some("No signal found at this line".to_string())
-                                } else {
-                                    None
-                                },
-                                source: Some(args.source.clone()),
-                                line: Some(line as i64),
-                                column: None,
-                                end_line: None,
-                                end_column: None,
-                                instruction_reference: None,
-                                offset: None,
-                            });
-                        }
+                    // Create breakpoint responses for each requested line
+                    for line in requested_lines {
+                        let verified = set_breakpoints.contains(&line);
+                        verified_breakpoints.push(dap::types::Breakpoint {
+                            id: Some(line as i64),
+                            verified,
+                            message: if !verified {
+                                Some("No signal found at this line".to_string())
+                            } else {
+                                None
+                            },
+                            source: Some(args.source.clone()),
+                            line: Some(line as i64),
+                            column: None,
+                            end_line: None,
+                            end_column: None,
+                            instruction_reference: None,
+                            offset: None,
+                        });
                     }
                 }
                 ResponseBody::SetBreakpoints(dap::responses::SetBreakpointsResponse {
@@ -420,16 +419,15 @@ impl ContinuumDebugAdapter {
 
                         if let Some((_id, instances)) =
                             session.runtime.entities().iter().nth(entity_idx)
+                            && let Some((_inst_id, data)) = instances.iter().nth(inst_idx)
                         {
-                            if let Some((_inst_id, data)) = instances.iter().nth(inst_idx) {
-                                for (field_name, val) in &data.fields {
-                                    variables.push(Variable {
-                                        name: field_name.clone(),
-                                        value: format!("{}", val),
-                                        variables_reference: 0,
-                                        ..Default::default()
-                                    });
-                                }
+                            for (field_name, val) in &data.fields {
+                                variables.push(Variable {
+                                    name: field_name.clone(),
+                                    value: format!("{}", val),
+                                    variables_reference: 0,
+                                    ..Default::default()
+                                });
                             }
                         }
                     }
@@ -572,13 +570,13 @@ impl ContinuumDebugAdapter {
                 // Step over - execute one phase (or until breakpoint)
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
-                    if !session.runtime.is_warmup_complete() {
-                        if let Err(e) = session.runtime.execute_warmup() {
-                            return self.make_error_response(
-                                &request,
-                                format!("Warmup failed: {}", e),
-                            );
-                        }
+                    if !session.runtime.is_warmup_complete()
+                        && let Err(e) = session.runtime.execute_warmup()
+                    {
+                        return self.make_error_response(
+                            &request,
+                            format!("Warmup failed: {}", e),
+                        );
                     }
                     match session.runtime.execute_step() {
                         Ok(result) => {
@@ -631,13 +629,13 @@ impl ContinuumDebugAdapter {
                 // In the future, could step into individual signal resolutions
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
-                    if !session.runtime.is_warmup_complete() {
-                        if let Err(e) = session.runtime.execute_warmup() {
-                            return self.make_error_response(
-                                &request,
-                                format!("Warmup failed: {}", e),
-                            );
-                        }
+                    if !session.runtime.is_warmup_complete()
+                        && let Err(e) = session.runtime.execute_warmup()
+                    {
+                        return self.make_error_response(
+                            &request,
+                            format!("Warmup failed: {}", e),
+                        );
                     }
                     match session.runtime.execute_step() {
                         Ok(result) => {
@@ -689,13 +687,13 @@ impl ContinuumDebugAdapter {
                 // Step out - execute until current tick completes
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
-                    if !session.runtime.is_warmup_complete() {
-                        if let Err(e) = session.runtime.execute_warmup() {
-                            return self.make_error_response(
-                                &request,
-                                format!("Warmup failed: {}", e),
-                            );
-                        }
+                    if !session.runtime.is_warmup_complete()
+                        && let Err(e) = session.runtime.execute_warmup()
+                    {
+                        return self.make_error_response(
+                            &request,
+                            format!("Warmup failed: {}", e),
+                        );
                     }
 
                     // Keep stepping until tick completes

@@ -10,9 +10,16 @@ use std::path::PathBuf;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+/// Version string from git describe or Cargo.toml fallback.
+const VERSION: &str = env!("CONTINUUM_VERSION");
+
+/// Long version includes the exact commit hash.
+const LONG_VERSION: &str = concat!(env!("CONTINUUM_VERSION"), " (", env!("CONTINUUM_COMMIT"), ")");
+
 #[derive(Parser, Debug)]
 #[command(name = "continuum-run")]
 #[command(about = "Run a Continuum world with IPC server for inspector")]
+#[command(version = VERSION, long_version = LONG_VERSION)]
 struct Cli {
     /// Path to a world directory or .cvm bundle
     world: PathBuf,
@@ -79,7 +86,7 @@ async fn main() {
     info!("Starting IPC server on: {}", cli.socket.display());
     info!("");
     info!("Connect with inspector:");
-    info!("  cargo run --bin continuum_inspector");
+    info!("  cargo run --bin continuum-inspector");
     info!("");
 
     if let Err(e) = server.run(&cli.socket).await {

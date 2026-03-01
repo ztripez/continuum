@@ -3,6 +3,10 @@ name = "continuum_inspector"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "continuum-inspector"
+path = "src/main.rs"
+
 [dependencies]
 # Web framework - Axum is the lightest with excellent WebSocket support
 axum = { version = "0.7", features = ["ws"] }
