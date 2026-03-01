@@ -231,7 +231,7 @@ export function DetailPanel({ selectedItem, sendRequest }: DetailPanelProps) {
               <span class="label">Era:</span>
               <span>{data.era}</span>
               <span class="label">Sim Time:</span>
-              <span>{data.sim_time.toFixed(2)}s</span>
+              <span>{data.sim_time != null ? data.sim_time.toFixed(2) + 's' : '—'}</span>
             </div>
             {data.fields && data.fields.length > 0 && (
               <div class="detail-section">
@@ -264,7 +264,7 @@ export function DetailPanel({ selectedItem, sendRequest }: DetailPanelProps) {
               <span class="label">Era:</span>
               <span>{data.era}</span>
               <span class="label">Sim Time:</span>
-              <span>{data.sim_time.toFixed(2)}s</span>
+              <span>{data.sim_time != null ? data.sim_time.toFixed(2) + 's' : '—'}</span>
             </div>
           </>
         )}
