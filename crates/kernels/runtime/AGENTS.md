@@ -20,6 +20,8 @@ This crate executes compiled DAGs through deterministic tick phases:
 - Results are applied sequentially after parallel computation
 
 ### Signal Storage
+- All signals (global and per-entity) are stored in `MemberSignalBuffer` (SoA layout)
+- Global signals use the root entity with instance_count=1
 - `current` holds values being resolved this tick
 - `previous` holds last tick's resolved values
 - `advance_tick()` preserves gated signal values before swapping
@@ -27,7 +29,7 @@ This crate executes compiled DAGs through deterministic tick phases:
 
 ### Phase Boundaries
 - Collect operators write to `InputChannels`
-- Resolve reads from `InputChannels` and writes to `SignalStorage`
+- Resolve reads from `InputChannels` and writes to `MemberSignalBuffer`
 - Fracture outputs queue for next tick (not current)
 - Phases must not cross-contaminate
 
@@ -44,18 +46,21 @@ This crate executes compiled DAGs through deterministic tick phases:
 
 ```
 src/
-├── lib.rs       # Module exports
-├── types.rs     # Runtime types + re-exported IDs
-├── error.rs     # Error types
-├── storage.rs   # SignalStorage, InputChannels, FractureQueue
-├── dag.rs       # DAG structures and topological leveling
-└── executor.rs  # Runtime and tick execution
+├── lib.rs              # Module exports
+├── types.rs            # Runtime types + re-exported IDs
+├── error.rs            # Error types
+├── storage.rs          # InputChannels, FractureQueue, EntityStorage
+├── soa_storage.rs      # MemberSignalBuffer (SoA signal storage)
+├── unified_storage.rs  # UnifiedStorage (member_signals + entities)
+├── dag/                # DAG structures and topological leveling
+└── executor/           # Runtime, phases, bytecode VM, tick execution
 ```
 
 ## Key Types
 
 - `Runtime` - Main execution engine
-- `SignalStorage` - Current/previous tick values
+- `MemberSignalBuffer` - SoA double-buffered signal storage (global + per-entity)
+- `UnifiedStorage` - Combines MemberSignalBuffer + EntityStorage
 - `ExecutableDag` - Leveled DAG for a (phase, stratum) pair
 - `ResolverFn`, `CollectFn`, `FractureFn` - Registered execution functions
 

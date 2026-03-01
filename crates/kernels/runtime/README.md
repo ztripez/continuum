@@ -7,7 +7,7 @@ This crate manages the lifecycle of a simulation run. It constructs the executio
 ## Responsibilities
 
 - **DAG Construction**: Builds `(Phase × Stratum × Era)` dependency graphs from the IR.
-- **State Storage**: Manages double-buffered `SignalStorage`, input channels, and field buffers.
+- **State Storage**: Manages `MemberSignalBuffer` (SoA double-buffered signals), input channels, and field buffers.
 - **Scheduler**: Executes DAG nodes in topological levels, enabling safe parallelism.
 - **Phase Orchestration**: Enforces the `Configure` → `Collect` → `Resolve` → `Fracture` → `Measure` cycle.
 - **Determinism**: Ensures all ordering and execution is strictly reproducible.

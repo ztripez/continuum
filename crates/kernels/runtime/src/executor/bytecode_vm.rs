@@ -58,6 +58,9 @@ pub(crate) fn zero_value_for_type(ty: &Type) -> Value {
 }
 
 /// Implementation of the VM execution context that bridges to runtime storage.
+///
+/// `era`, `sim_time`, and `entities` are reserved for upcoming opcodes
+/// (era transitions, time-dependent logic, entity queries).
 #[allow(dead_code)]
 pub struct VMContext<'a> {
     /// Current execution phase

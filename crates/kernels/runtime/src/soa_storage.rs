@@ -1468,7 +1468,7 @@ impl MemberSignalBuffer {
 
     /// Initialize a global signal: set both current and previous to the given value.
     ///
-    /// Equivalent to the old `SignalStorage::init()` — ensures the signal has a value
+    /// Sets both current and previous buffers — ensures the signal has a value
     /// in both tick buffers from the start.
     pub fn init_global(&mut self, signal: &str, value: Value) -> Result<(), String> {
         // Set current
@@ -1490,7 +1490,7 @@ impl MemberSignalBuffer {
 
     /// Get the current value of a global signal, falling back to previous if not yet resolved.
     ///
-    /// Equivalent to `SignalStorage::get()` — used during Resolve phase for
+    /// Used during Resolve phase for
     /// intra-tick dependencies.
     pub fn get_global_or_prev(&self, signal: &str) -> Option<Value> {
         self.get_current(signal, 0)

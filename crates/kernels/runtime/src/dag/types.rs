@@ -31,11 +31,11 @@ pub struct NodeId(pub String);
 /// Entity context for signal resolution nodes.
 ///
 /// When present, indicates this signal belongs to a non-root entity
-/// and must be resolved per-instance. The signal values are stored in
-/// `MemberSignalBuffer` rather than `SignalStorage`.
+/// and must be resolved per-instance with entity-scoped storage in
+/// `MemberSignalBuffer`.
 ///
-/// When absent (`None`), the signal is a root-entity member (global signal)
-/// with implicit instance count of 1, stored in `SignalStorage`.
+/// When absent (`None`), the signal is a root-entity global signal
+/// with implicit instance count of 1, also stored in `MemberSignalBuffer`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalEntityContext {
     /// The member signal identifier (entity_id + signal_name).
