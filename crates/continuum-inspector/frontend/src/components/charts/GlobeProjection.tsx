@@ -1,22 +1,17 @@
 import { useEffect, useRef } from 'preact/hooks';
 import * as d3 from 'd3';
 import type { FieldSampleEntry } from '../../types/ipc';
+import { useContainerSize } from '../../hooks/useContainerSize';
 
 interface GlobeProjectionProps {
   samples: FieldSampleEntry[];
-  width?: number;
-  height?: number;
   label?: string;
 }
 
 /** D3 orthographic globe projection for sphere_surface field samples. 
  *  Positions are interpreted as [longitude, latitude, altitude] in degrees. */
-export function GlobeProjection({
-  samples,
-  width = 400,
-  height = 400,
-  label,
-}: GlobeProjectionProps) {
+export function GlobeProjection({ samples, label }: GlobeProjectionProps) {
+  const { ref: containerRef, width, height } = useContainerSize();
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
@@ -27,6 +22,7 @@ export function GlobeProjection({
 
     const size = Math.min(width, height);
     const radius = size / 2 - 20;
+    if (radius <= 0) return;
 
     const projection = d3
       .geoOrthographic()
@@ -36,64 +32,37 @@ export function GlobeProjection({
 
     const path = d3.geoPath().projection(projection);
 
-    // Globe background
-    svg
-      .append('circle')
-      .attr('cx', width / 2)
-      .attr('cy', height / 2)
-      .attr('r', radius)
-      .attr('fill', '#1a1a2e')
-      .attr('stroke', '#444')
-      .attr('stroke-width', 0.5);
+    svg.append('circle')
+      .attr('cx', width / 2).attr('cy', height / 2).attr('r', radius)
+      .attr('fill', '#1a1a2e').attr('stroke', '#444').attr('stroke-width', 0.5);
 
-    // Graticule
     const graticule = d3.geoGraticule().step([30, 30]);
-    svg
-      .append('path')
+    svg.append('path')
       .datum(graticule())
       .attr('d', path)
-      .attr('fill', 'none')
-      .attr('stroke', '#333')
-      .attr('stroke-width', 0.3);
+      .attr('fill', 'none').attr('stroke', '#333').attr('stroke-width', 0.3);
 
-    // Color scale from scalar values
     const scalarSamples = samples.filter((s) => s.scalar != null);
     const colorExtent = d3.extent(scalarSamples, (d) => d.scalar!) as [number, number];
     const color = d3
       .scaleSequential(d3.interpolateViridis)
       .domain(colorExtent[0] !== undefined ? colorExtent : [0, 1]);
 
-    // Plot sample points
-    // Position: [x, y, z] where x=lon, y=lat for spherical fields
     const g = svg.append('g');
-
     for (const sample of samples) {
-      const lon = sample.position[0];
-      const lat = sample.position[1];
-      const projected = projection([lon, lat]);
-      if (!projected) continue; // Behind the globe
-
-      const pointColor =
-        sample.scalar != null ? color(sample.scalar) : '#888';
+      const projected = projection([sample.position[0], sample.position[1]]);
+      if (!projected) continue;
 
       g.append('circle')
-        .attr('cx', projected[0])
-        .attr('cy', projected[1])
-        .attr('r', 2.5)
-        .attr('fill', pointColor)
-        .attr('opacity', 0.8)
-        .attr('stroke', 'none');
+        .attr('cx', projected[0]).attr('cy', projected[1]).attr('r', 2.5)
+        .attr('fill', sample.scalar != null ? color(sample.scalar) : '#888')
+        .attr('opacity', 0.8).attr('stroke', 'none');
     }
 
-    // Label
     if (label) {
-      svg
-        .append('text')
-        .attr('x', width / 2)
-        .attr('y', 14)
-        .attr('text-anchor', 'middle')
-        .attr('fill', '#888')
-        .attr('font-size', '10px')
+      svg.append('text')
+        .attr('x', width / 2).attr('y', 14)
+        .attr('text-anchor', 'middle').attr('fill', '#888').attr('font-size', '10px')
         .text(label);
     }
   }, [samples, width, height, label]);
@@ -103,11 +72,8 @@ export function GlobeProjection({
   }
 
   return (
-    <svg
-      ref={svgRef}
-      width={width}
-      height={height}
-      style="background: transparent;"
-    />
+    <div ref={containerRef} style="flex:1;min-height:0;min-width:0;">
+      <svg ref={svgRef} width={width} height={height} style="background:transparent;display:block;" />
+    </div>
   );
 }

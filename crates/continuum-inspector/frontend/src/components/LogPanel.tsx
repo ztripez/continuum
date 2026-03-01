@@ -10,56 +10,90 @@ interface LogPanelProps {
   ws: any;
 }
 
+/** Server-push event types worth logging. Request/response traffic is filtered out. */
+const LOGGABLE_EVENT_TYPES = new Set([
+  'assertion_failure',
+  'chronicle',
+  'era_transition',
+  'fault',
+  'error',
+]);
+
 export function LogPanel({ ws }: LogPanelProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (ws.status !== 'connected') return;
 
-    // Subscribe to all messages, but filter out high-frequency tick events
-    // (those are consumed by the Header for status display, not log-worthy)
     const unsubscribe = ws.subscribe('*', (msg: any) => {
+      if ('id' in msg) return;
       if ('type' in msg && msg.type === 'tick') return;
+
+      const msgType = 'type' in msg ? msg.type : '';
+      if (!LOGGABLE_EVENT_TYPES.has(msgType)) return;
 
       const entry: LogEntry = {
         timestamp: new Date(),
-        type: 'type' in msg && msg.type.includes('event') ? 'event' : 'error' in msg ? 'error' : 'info',
+        type: msgType === 'error' || msgType === 'fault' || msgType === 'assertion_failure'
+          ? 'error'
+          : 'event',
         message: JSON.stringify(msg, null, 2),
       };
-      
+
       setLogs(prev => {
         const updated = [...prev, entry];
-        return updated.slice(-500); // Keep last 500
+        return updated.slice(-200);
       });
+
+      // Auto-expand on new events
+      setExpanded(true);
     });
 
     return unsubscribe;
   }, [ws.status]);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    if (expanded) {
+      logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, expanded]);
 
-  const handleClear = () => {
+  const handleClear = (e: Event) => {
+    e.stopPropagation();
     setLogs([]);
   };
 
+  const eventCount = logs.length;
+
   return (
-    <div class="log-panel">
-      <div class="log-header">
-        <h3>Log</h3>
-        <button onClick={handleClear} class="small">Clear</button>
+    <div class={`log-panel ${expanded ? 'expanded' : 'collapsed'}`}>
+      <div class="log-header" onClick={() => setExpanded(!expanded)}>
+        <h3>
+          <span class="log-toggle">{'\u25B2'}</span>
+          Log {eventCount > 0 && `(${eventCount})`}
+        </h3>
+        {eventCount > 0 && (
+          <button onClick={handleClear} class="small">Clear</button>
+        )}
       </div>
-      <div class="log-content">
-        {logs.map((entry, idx) => (
-          <div key={idx} class={`log-entry log-${entry.type}`}>
-            <span class="log-time">[{entry.timestamp.toLocaleTimeString()}]</span>
-            <span class="log-message">{entry.message}</span>
-          </div>
-        ))}
-        <div ref={logEndRef} />
-      </div>
+      {expanded && (
+        <div class="log-content">
+          {logs.length === 0 && (
+            <div class="log-entry log-info">
+              <span class="log-message">Listening for events...</span>
+            </div>
+          )}
+          {logs.map((entry, idx) => (
+            <div key={idx} class={`log-entry log-${entry.type}`}>
+              <span class="log-time">[{entry.timestamp.toLocaleTimeString()}]</span>
+              <span class="log-message">{entry.message}</span>
+            </div>
+          ))}
+          <div ref={logEndRef} />
+        </div>
+      )}
     </div>
   );
 }
