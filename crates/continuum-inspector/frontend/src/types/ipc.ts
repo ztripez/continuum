@@ -122,3 +122,35 @@ export interface AssertionFailure {
   era: string;
   sim_time: number;
 }
+
+// Field sample types (matches Rust FieldSampleEntry / FieldSampleData)
+
+export interface FieldSampleEntry {
+  position: [number, number, number];
+  scalar: number | null;
+  value: any;
+}
+
+export interface FieldSampleData {
+  field_id: string;
+  tick: number;
+  sim_time: number;
+  samples: FieldSampleEntry[];
+}
+
+// Signal history types (matches Rust SignalHistoryEntry / SignalHistoryData)
+
+export interface SignalHistoryEntry {
+  tick: number;
+  sim_time: number;
+  scalar: number | null;
+  value: any;
+}
+
+export interface SignalHistoryData {
+  signal_id: string;
+  entries: SignalHistoryEntry[];
+}
+
+// Topology type for chart routing
+export type FieldTopology = 'point_cloud' | 'grid2d' | 'sphere_surface';

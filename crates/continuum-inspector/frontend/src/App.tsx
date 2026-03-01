@@ -77,7 +77,7 @@ export function App() {
           ws={ws}
         />
         <div class="center-panel">
-          <DetailPanel selectedItem={selectedItem} ws={ws} />
+          <DetailPanel selectedItem={selectedItem} sendRequest={ws.sendRequest} />
           <LogPanel ws={ws} />
         </div>
         <AssertionPanel ws={ws} onSelectAssertion={handleSelectAssertion} />

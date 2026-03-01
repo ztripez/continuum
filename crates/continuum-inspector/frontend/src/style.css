@@ -1032,3 +1032,26 @@ button.small {
   background: var(--warning);
   animation: none;
 }
+
+/* Chart containers */
+.detail-chart {
+  margin-top: 12px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.detail-chart svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.chart-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
