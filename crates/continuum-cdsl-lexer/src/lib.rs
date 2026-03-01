@@ -92,6 +92,9 @@ pub enum Token {
     /// Keyword `fn`
     #[token("fn")]
     Fn,
+    /// Keyword `namespace` — optional file-level path prefix for declarations
+    #[token("namespace")]
+    Namespace,
 
     // Phases & Blocks
     /// Keyword `resolve`
@@ -432,7 +435,8 @@ const TOKEN_STRINGS: &[&str] = &[
     "type",
     "const",
     "config",
-    "fn", // structure
+    "fn",
+    "namespace", // structure
     "resolve",
     "warmup",
     "iterate",
@@ -883,6 +887,7 @@ mod tests {
         // Test a sample of tokens to ensure Display matches expected strings
         assert_eq!(Token::Signal.to_string(), "signal");
         assert_eq!(Token::Field.to_string(), "field");
+        assert_eq!(Token::Namespace.to_string(), "namespace");
         assert_eq!(Token::Plus.to_string(), "+");
         assert_eq!(Token::EqEq.to_string(), "==");
         assert_eq!(Token::Arrow.to_string(), "->");
@@ -905,7 +910,7 @@ mod tests {
 
     #[test]
     fn test_new_keywords() {
-        let tokens = lex("for emit observe world and or not");
+        let tokens = lex("for emit observe world and or not namespace");
         assert_eq!(
             tokens,
             vec![
@@ -916,6 +921,7 @@ mod tests {
                 Token::And,
                 Token::Or,
                 Token::Not,
+                Token::Namespace,
             ]
         );
     }

@@ -77,6 +77,16 @@ impl Path {
         }
     }
 
+    /// Returns a new path with the given prefix prepended.
+    ///
+    /// Used by the parser to apply file-level `namespace` declarations
+    /// to all contained symbol paths.
+    pub fn with_prefix(&self, prefix: &Path) -> Self {
+        let mut segments = prefix.segments.clone();
+        segments.extend(self.segments.iter().cloned());
+        Self::new(segments)
+    }
+
     /// Check if this path starts with another path.
     pub fn starts_with(&self, prefix: &Path) -> bool {
         self.segments.starts_with(&prefix.segments)

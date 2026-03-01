@@ -1044,3 +1044,218 @@ fn test_standalone_member_with_dotted_path() {
         _ => panic!("Expected Member declaration"),
     }
 }
+
+// =============================================================================
+// Namespace header tests
+// =============================================================================
+
+#[test]
+fn test_namespace_prefixes_signal() {
+    let source = r#"
+        namespace terra.atmosphere
+
+        signal surface_temp {
+            resolve { 300.0 }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => {
+            assert_eq!(node.path.to_string(), "terra.atmosphere.surface_temp");
+            assert!(matches!(node.role, RoleData::Signal));
+        }
+        _ => panic!("Expected Node declaration"),
+    }
+}
+
+#[test]
+fn test_namespace_prefixes_multiple_declarations() {
+    let source = r#"
+        namespace terra.atmosphere
+
+        signal surface_temp {
+            resolve { 300.0 }
+        }
+
+        field temperature_map {
+            measure { 0.0 }
+        }
+
+        operator thermal_cycle {
+            collect { 0.0 }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 3);
+
+    match &decls[0] {
+        Declaration::Node(node) => {
+            assert_eq!(node.path.to_string(), "terra.atmosphere.surface_temp");
+        }
+        _ => panic!("Expected Node (signal)"),
+    }
+
+    match &decls[1] {
+        Declaration::Node(node) => {
+            assert_eq!(node.path.to_string(), "terra.atmosphere.temperature_map");
+        }
+        _ => panic!("Expected Node (field)"),
+    }
+
+    match &decls[2] {
+        Declaration::Node(node) => {
+            assert_eq!(node.path.to_string(), "terra.atmosphere.thermal_cycle");
+        }
+        _ => panic!("Expected Node (operator)"),
+    }
+}
+
+#[test]
+fn test_namespace_prefixes_entity() {
+    let source = r#"
+        namespace terra
+
+        entity plate {
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Entity(entity) => {
+            assert_eq!(entity.path.to_string(), "terra.plate");
+        }
+        _ => panic!("Expected Entity declaration"),
+    }
+}
+
+#[test]
+fn test_namespace_prefixes_stratum_and_era() {
+    let source = r#"
+        namespace terra
+
+        strata physics {
+        }
+
+        era formation {
+            : initial
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 2);
+
+    match &decls[0] {
+        Declaration::Stratum(s) => {
+            assert_eq!(s.path.to_string(), "terra.physics");
+        }
+        _ => panic!("Expected Stratum declaration"),
+    }
+
+    match &decls[1] {
+        Declaration::Era(e) => {
+            assert_eq!(e.path.to_string(), "terra.formation");
+        }
+        _ => panic!("Expected Era declaration"),
+    }
+}
+
+#[test]
+fn test_namespace_does_not_affect_const_config() {
+    let source = r#"
+        namespace terra.atmosphere
+
+        const {
+            base_temp: 288.0
+        }
+
+        config {
+            resolution: 100
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 2);
+
+    // Const/config paths should NOT be prefixed
+    match &decls[0] {
+        Declaration::Const(entries) => {
+            assert_eq!(entries[0].path.to_string(), "base_temp");
+        }
+        _ => panic!("Expected Const declaration"),
+    }
+
+    match &decls[1] {
+        Declaration::Config(entries) => {
+            assert_eq!(entries[0].path.to_string(), "resolution");
+        }
+        _ => panic!("Expected Config declaration"),
+    }
+}
+
+#[test]
+fn test_no_namespace_leaves_paths_unchanged() {
+    let source = r#"
+        signal terra.atmosphere.surface_temp {
+            resolve { 300.0 }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => {
+            assert_eq!(node.path.to_string(), "terra.atmosphere.surface_temp");
+        }
+        _ => panic!("Expected Node declaration"),
+    }
+}
+
+#[test]
+fn test_namespace_single_segment() {
+    let source = r#"
+        namespace terra
+
+        signal elevation {
+            resolve { 0.0 }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => {
+            assert_eq!(node.path.to_string(), "terra.elevation");
+        }
+        _ => panic!("Expected Node declaration"),
+    }
+}
+
+#[test]
+fn test_namespace_with_doc_comment_before() {
+    let source = r#"
+        /// Atmosphere module
+        namespace terra.atmosphere
+
+        signal surface_temp {
+            resolve { 300.0 }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => {
+            assert_eq!(node.path.to_string(), "terra.atmosphere.surface_temp");
+        }
+        _ => panic!("Expected Node declaration"),
+    }
+}

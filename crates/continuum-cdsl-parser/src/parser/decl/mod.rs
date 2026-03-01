@@ -18,11 +18,35 @@ mod world;
 use super::{ParseError, TokenStream};
 use continuum_cdsl_ast::{Attribute, Declaration, NestedBlock, Node, RoleData};
 use continuum_cdsl_lexer::Token;
+use continuum_foundation::Path;
 
 /// Parse all declarations from a token stream.
+///
+/// If the file starts with `namespace <path>`, that path is prepended to all
+/// declaration paths (signals, fields, entities, operators, etc.). References
+/// within expressions are unaffected — they always use fully qualified paths.
 pub fn parse_declarations(stream: &mut TokenStream) -> Result<Vec<Declaration>, Vec<ParseError>> {
     let mut declarations = Vec::new();
     let mut errors = Vec::new();
+
+    // Skip leading doc comments before namespace check
+    while matches!(stream.peek(), Some(Token::DocComment(_))) {
+        stream.advance();
+    }
+
+    // Parse optional `namespace <path>` header
+    let namespace = if matches!(stream.peek(), Some(Token::Namespace)) {
+        stream.advance(); // consume `namespace`
+        match super::types::parse_path(stream) {
+            Ok(path) => Some(path),
+            Err(e) => {
+                errors.push(e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     while !stream.at_end() {
         // Skip doc comments at declaration level (not yet attached to declarations)
@@ -45,7 +69,12 @@ pub fn parse_declarations(stream: &mut TokenStream) -> Result<Vec<Declaration>, 
             }
         } else {
             match parse_declaration(stream) {
-                Ok(decl) => declarations.push(decl),
+                Ok(mut decl) => {
+                    if let Some(ref ns) = namespace {
+                        apply_namespace(&mut decl, ns);
+                    }
+                    declarations.push(decl);
+                }
                 Err(e) => {
                     errors.push(e);
                     stream.synchronize();
@@ -58,6 +87,34 @@ pub fn parse_declarations(stream: &mut TokenStream) -> Result<Vec<Declaration>, 
         Ok(declarations)
     } else {
         Err(errors)
+    }
+}
+
+/// Prefix a declaration's path with the file-level namespace.
+///
+/// Applies to: Node, Member, Entity, Stratum, Era, Function.
+/// Does NOT apply to: Const, Config, Type, World (these use their own scoping).
+fn apply_namespace(decl: &mut Declaration, namespace: &Path) {
+    match decl {
+        Declaration::Node(node) | Declaration::Member(node) => {
+            node.path = node.path.with_prefix(namespace);
+        }
+        Declaration::Entity(entity) => {
+            entity.path = entity.path.with_prefix(namespace);
+        }
+        Declaration::Stratum(stratum) => {
+            stratum.path = stratum.path.with_prefix(namespace);
+        }
+        Declaration::Era(era) => {
+            era.path = era.path.with_prefix(namespace);
+        }
+        Declaration::Function(func) => {
+            func.path = func.path.with_prefix(namespace);
+        }
+        Declaration::Const(_)
+        | Declaration::Config(_)
+        | Declaration::Type(_)
+        | Declaration::World(_) => {}
     }
 }
 

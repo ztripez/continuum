@@ -246,3 +246,81 @@ fn test_compile_from_memory_deterministic_order() {
     let _result = compile_from_memory(sources);
     // If it doesn't panic, the ordering is working
 }
+
+#[test]
+fn test_compile_namespace_prefix_applied() {
+    let mut sources = IndexMap::new();
+
+    sources.insert(
+        PathBuf::from("world.cdsl"),
+        r#"
+world test_ns {
+}
+
+strata sim {
+    : stride(1)
+}
+
+era main {
+    : initial
+    : dt(1.0<s>)
+
+    strata { sim: active }
+}
+"#
+        .to_string(),
+    );
+
+    // File using namespace header — declarations should be prefixed
+    sources.insert(
+        PathBuf::from("atmo.cdsl"),
+        r#"
+namespace terra.atmosphere
+
+signal surface_temp {
+    : Scalar
+    : strata(sim)
+
+    resolve { 300.0 }
+}
+"#
+        .to_string(),
+    );
+
+    let result = compile_from_memory(sources);
+
+    match result {
+        Ok(compiled) => {
+            // Namespace should prefix the signal path
+            assert!(
+                compiled
+                    .world
+                    .nodes
+                    .contains_key(&crate::foundation::Path::from_path_str(
+                        "terra.atmosphere.surface_temp"
+                    )),
+                "Expected terra.atmosphere.surface_temp in nodes, found: {:?}",
+                compiled.world.nodes.keys().collect::<Vec<_>>()
+            );
+            // Should NOT exist under the un-prefixed name
+            assert!(
+                !compiled
+                    .world
+                    .nodes
+                    .contains_key(&crate::foundation::Path::from_path_str("surface_temp")),
+                "Bare surface_temp should not exist — namespace prefix was not applied"
+            );
+        }
+        Err((_, errors)) => {
+            let has_syntax_error = errors
+                .iter()
+                .any(|e| matches!(e.kind, crate::resolve::error::ErrorKind::Syntax));
+            assert!(
+                !has_syntax_error,
+                "Syntax errors found: {:?}",
+                errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+            );
+            // Resolution errors are fine — the world is minimal
+        }
+    }
+}
