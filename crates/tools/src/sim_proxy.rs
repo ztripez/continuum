@@ -93,6 +93,13 @@ pub enum SimCommand {
     GetAssertionFailures {
         reply: cbc::Sender<Vec<AssertionFailure>>,
     },
+
+    /// Read current values of a member signal across all entity instances.
+    GetMemberValues {
+        /// Full signal path (e.g., "terra.plate.age").
+        signal_name: String,
+        reply: cbc::Sender<MemberValuesResult>,
+    },
 }
 
 // ============================================================================
@@ -119,6 +126,21 @@ pub struct RestoreResult {
     pub sim_time: f64,
     /// Era after restore.
     pub era: EraId,
+}
+
+/// Result of querying member signal values across entity instances.
+#[derive(Debug, Clone)]
+pub struct MemberValuesResult {
+    /// Entity this signal belongs to (e.g., "terra.plate").
+    pub entity_id: String,
+    /// Number of entity instances.
+    pub instance_count: usize,
+    /// Current tick when values were read.
+    pub tick: u64,
+    /// Current simulation time when values were read.
+    pub sim_time: f64,
+    /// Per-instance values, indexed by instance index.
+    pub values: Vec<(usize, Value)>,
 }
 
 /// Snapshot of the latest field samples from the simulation thread.
@@ -352,6 +374,21 @@ impl SimProxy {
         let (tx, rx) = cbc::bounded(1);
         self.cmd_tx
             .send(SimCommand::GetAssertionFailures { reply: tx })
+            .map_err(|_| SimDisconnected)?;
+        rx.recv().map_err(|_| SimDisconnected)
+    }
+
+    /// Read current values of a member signal across all entity instances.
+    pub fn get_member_values(
+        &self,
+        signal_name: String,
+    ) -> Result<MemberValuesResult, SimDisconnected> {
+        let (tx, rx) = cbc::bounded(1);
+        self.cmd_tx
+            .send(SimCommand::GetMemberValues {
+                signal_name,
+                reply: tx,
+            })
             .map_err(|_| SimDisconnected)?;
         rx.recv().map_err(|_| SimDisconnected)
     }

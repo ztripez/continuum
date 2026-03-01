@@ -91,6 +91,59 @@ pub struct SignalHistoryEntry {
     pub value: serde_json::Value,
 }
 
+/// Member metadata exposed through the IPC API.
+///
+/// Describes a per-entity member signal, including which entity it belongs to,
+/// its role (signal, field, fracture, etc.), and type information.
+#[derive(Serialize, Deserialize)]
+pub struct MemberInfo {
+    /// Fully qualified path (e.g., "terra.plate.velocity").
+    pub id: String,
+    /// Short title for UI display.
+    pub title: Option<String>,
+    /// Documentation comment from source.
+    pub doc: Option<String>,
+    /// Role of this member (signal, field, operator, fracture, chronicle).
+    pub role: String,
+    /// Output type description (e.g., "Scalar<K>", "Vec3<m/s>").
+    pub value_type: Option<String>,
+    /// Stratum assignment.
+    pub stratum: Option<String>,
+    /// Entity this member belongs to.
+    pub entity_id: String,
+}
+
+/// A single member instance value entry serialized for IPC transport.
+#[derive(Serialize, Deserialize)]
+pub struct MemberValueEntry {
+    /// Instance index within the entity.
+    pub instance: usize,
+    /// Scalar value at this instance (`null` for non-scalar values).
+    pub scalar: Option<f64>,
+    /// Full value representation.
+    pub value: serde_json::Value,
+}
+
+/// Response payload for `member.values` requests.
+///
+/// Contains the current values of a specific member signal across all entity
+/// instances, tagged with the tick and simulation time when they were read.
+#[derive(Serialize, Deserialize)]
+pub struct MemberValueData {
+    /// Member signal identifier (dotted path).
+    pub member_id: String,
+    /// Entity this member belongs to.
+    pub entity_id: String,
+    /// Number of entity instances.
+    pub instance_count: usize,
+    /// Tick at which values were read.
+    pub tick: u64,
+    /// Simulation time at which values were read.
+    pub sim_time: f64,
+    /// Per-instance values.
+    pub values: Vec<MemberValueEntry>,
+}
+
 /// Response payload for `signal.history` requests.
 ///
 /// Contains a time-series of signal values from a ring buffer,

@@ -414,6 +414,47 @@ button.small {
   font-weight: 600;
 }
 
+.member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.member-item {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg);
+  border-radius: 4px;
+  border-left: 3px solid var(--accent);
+}
+
+.member-name {
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.member-meta {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.member-role {
+  text-transform: lowercase;
+  background: var(--bg-surface);
+  padding: 0 0.4rem;
+  border-radius: 3px;
+}
+
+.member-type {
+  font-family: monospace;
+}
+
+.member-stratum {
+  font-style: italic;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 140px 1fr;

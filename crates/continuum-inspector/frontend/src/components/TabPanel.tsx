@@ -31,8 +31,8 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse,
     }).catch(console.error);
 
     ws.sendRequest('entity.list').then((data: any) => {
-      // Backend returns array directly, not wrapped in {entities: [...]}
-      setEntities(Array.isArray(data) ? data.map((e: any) => e.id) : []);
+      // Backend returns array of strings directly
+      setEntities(Array.isArray(data) ? data.map((e: any) => typeof e === 'string' ? e : e.id) : []);
     }).catch(console.error);
 
     ws.sendRequest('impulse.list').then((data: any) => {

@@ -43,11 +43,19 @@ export interface FieldInfo {
   range?: [number, number];
 }
 
+export interface EntityMemberSummary {
+  id: string;
+  role: string;
+  value_type?: string;
+  stratum?: string;
+}
+
 export interface EntityInfo {
   id: string;
   title?: string;
   doc?: string;
   count_bounds?: [number, number];
+  members?: EntityMemberSummary[];
 }
 
 export interface StratumInfo {
@@ -121,6 +129,33 @@ export interface AssertionFailure {
   tick: number;
   era: string;
   sim_time: number;
+}
+
+// Member types (matches Rust MemberInfo / MemberValueData)
+
+export interface MemberInfo {
+  id: string;
+  title?: string;
+  doc?: string;
+  role: string;
+  value_type?: string;
+  stratum?: string;
+  entity_id: string;
+}
+
+export interface MemberValueEntry {
+  instance: number;
+  scalar: number | null;
+  value: any;
+}
+
+export interface MemberValueData {
+  member_id: string;
+  entity_id: string;
+  instance_count: number;
+  tick: number;
+  sim_time: number;
+  values: MemberValueEntry[];
 }
 
 // Field sample types (matches Rust FieldSampleEntry / FieldSampleData)

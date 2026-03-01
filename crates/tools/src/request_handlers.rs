@@ -160,6 +160,9 @@ impl RequestRouter {
         router.register(Box::new(FieldSamplesHandler));
         router.register(Box::new(EntityListHandler));
         router.register(Box::new(EntityDescribeHandler));
+        router.register(Box::new(MemberListHandler));
+        router.register(Box::new(MemberDescribeHandler));
+        router.register(Box::new(MemberValuesHandler));
         router.register(Box::new(ImpulseListHandler));
         router.register(Box::new(ImpulseEmitHandler));
         router.register(Box::new(AssertionListHandler));

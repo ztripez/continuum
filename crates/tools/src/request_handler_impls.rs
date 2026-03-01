@@ -8,8 +8,8 @@
 //! which is fine because handlers run on `spawn_blocking` threads.
 
 use crate::ipc_types::{
-    AssertionInfo, FieldInfo, FieldSampleData, FieldSampleEntry, ImpulseInfo, SignalHistoryData,
-    SignalHistoryEntry, SignalInfo,
+    AssertionInfo, FieldInfo, FieldSampleData, FieldSampleEntry, ImpulseInfo, MemberInfo,
+    MemberValueData, MemberValueEntry, SignalHistoryData, SignalHistoryEntry, SignalInfo,
 };
 use crate::world_api::{WorldRequest, WorldResponse};
 use continuum_cdsl::ast::{Domain, RoleData, RoleId};
@@ -884,10 +884,236 @@ impl RequestHandler for EntityDescribeHandler {
             }
         };
 
+        // Collect members belonging to this entity
+        let entity_eid = &entity.id;
+        let members: Vec<serde_json::Value> = state
+            .compiled
+            .world
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.entity.as_ref() == Some(entity_eid))
+            .map(|(path, node)| {
+                serde_json::json!({
+                    "id": path.to_string(),
+                    "role": format!("{:?}", node.role.id()),
+                    "value_type": node.output.as_ref().map(|t| t.to_string()),
+                    "stratum": node.stratum.as_ref().map(|s| s.to_string()),
+                })
+            })
+            .collect();
+
         match serde_json::to_value(serde_json::json!({
             "id": entity_id,
             "doc": entity.doc,
+            "members": members,
         })) {
+            Ok(payload) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Serialization error: {}", e)),
+            },
+        }
+    }
+}
+
+// ============================================================================
+// Member Handlers
+// ============================================================================
+
+pub(crate) struct MemberListHandler;
+
+impl RequestHandler for MemberListHandler {
+    fn kind(&self) -> &'static str {
+        "member.list"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        let entity_filter = req.payload.get("entity_id").and_then(|v| v.as_str());
+
+        let members: Vec<MemberInfo> = state
+            .compiled
+            .world
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.entity.is_some())
+            .filter(|(_, node)| {
+                entity_filter
+                    .map(|filter| {
+                        node.entity
+                            .as_ref()
+                            .is_some_and(|eid| eid.to_string() == filter)
+                    })
+                    .unwrap_or(true)
+            })
+            .map(|(path, node)| MemberInfo {
+                id: path.to_string(),
+                title: node.title.clone(),
+                doc: node.doc.clone(),
+                role: format!("{:?}", node.role.id()),
+                value_type: node.output.as_ref().map(|t| t.to_string()),
+                stratum: node.stratum.as_ref().map(|s| s.to_string()),
+                entity_id: node
+                    .entity
+                    .as_ref()
+                    .map(|e| e.to_string())
+                    .unwrap_or_default(),
+            })
+            .collect();
+
+        match serde_json::to_value(members) {
+            Ok(payload) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Serialization error: {}", e)),
+            },
+        }
+    }
+}
+
+pub(crate) struct MemberDescribeHandler;
+
+impl RequestHandler for MemberDescribeHandler {
+    fn kind(&self) -> &'static str {
+        "member.describe"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        let member_id = match req.payload.get("member_id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Missing 'member_id' parameter".to_string()),
+                };
+            }
+        };
+
+        let member_path = continuum_foundation::Path::from(member_id.to_string());
+        let node = match state.compiled.world.nodes.get(&member_path) {
+            Some(node) if node.entity.is_some() => node,
+            _ => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some(format!("Member not found: {}", member_id)),
+                };
+            }
+        };
+
+        let info = MemberInfo {
+            id: member_id.to_string(),
+            title: node.title.clone(),
+            doc: node.doc.clone(),
+            role: format!("{:?}", node.role.id()),
+            value_type: node.output.as_ref().map(|t| t.to_string()),
+            stratum: node.stratum.as_ref().map(|s| s.to_string()),
+            entity_id: node
+                .entity
+                .as_ref()
+                .map(|e| e.to_string())
+                .unwrap_or_default(),
+        };
+
+        match serde_json::to_value(info) {
+            Ok(payload) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Serialization error: {}", e)),
+            },
+        }
+    }
+}
+
+pub(crate) struct MemberValuesHandler;
+
+impl RequestHandler for MemberValuesHandler {
+    fn kind(&self) -> &'static str {
+        "member.values"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        let member_id = match req.payload.get("member_id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Missing 'member_id' parameter".to_string()),
+                };
+            }
+        };
+
+        // Verify this is a known member signal
+        let member_path = continuum_foundation::Path::from(member_id.to_string());
+        match state.compiled.world.nodes.get(&member_path) {
+            Some(node) if node.entity.is_some() => {}
+            _ => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some(format!("Member not found: {}", member_id)),
+                };
+            }
+        }
+
+        let result = match state.sim.get_member_values(member_id.to_string()) {
+            Ok(r) => r,
+            Err(_) => {
+                return WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some("Simulation thread disconnected".to_string()),
+                };
+            }
+        };
+
+        let values: Vec<MemberValueEntry> = result
+            .values
+            .iter()
+            .map(|(idx, val)| MemberValueEntry {
+                instance: *idx,
+                scalar: val.as_scalar(),
+                value: serde_json::to_value(val).unwrap_or(serde_json::Value::Null),
+            })
+            .collect();
+
+        let data = MemberValueData {
+            member_id: member_id.to_string(),
+            entity_id: result.entity_id,
+            instance_count: result.instance_count,
+            tick: result.tick,
+            sim_time: result.sim_time,
+            values,
+        };
+
+        match serde_json::to_value(data) {
             Ok(payload) => WorldResponse {
                 id: req.id,
                 ok: true,

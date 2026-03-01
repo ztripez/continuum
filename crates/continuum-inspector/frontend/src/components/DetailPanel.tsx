@@ -189,18 +189,37 @@ export function DetailPanel({ selectedItem, sendRequest }: DetailPanelProps) {
           </>
         )}
         {type === 'entity' && (
-          <div class="detail-grid">
-            <span class="label">ID:</span>
-            <span>{data.id}</span>
-            {data.count_bounds && (
-              <>
-                <span class="label">Count Bounds:</span>
-                <span>
-                  {data.count_bounds[0]} … {data.count_bounds[1]}
-                </span>
-              </>
+          <>
+            <div class="detail-grid">
+              <span class="label">ID:</span>
+              <span>{data.id}</span>
+              {data.count_bounds && (
+                <>
+                  <span class="label">Count Bounds:</span>
+                  <span>
+                    {data.count_bounds[0]} … {data.count_bounds[1]}
+                  </span>
+                </>
+              )}
+            </div>
+            {data.members && data.members.length > 0 && (
+              <div class="detail-section">
+                <h3>Members ({data.members.length})</h3>
+                <div class="member-list">
+                  {data.members.map((m: any) => (
+                    <div key={m.id} class="member-item">
+                      <div class="member-name">{m.id}</div>
+                      <div class="member-meta">
+                        <span class="member-role">{m.role}</span>
+                        {m.value_type && <span class="member-type">{m.value_type}</span>}
+                        {m.stratum && <span class="member-stratum">{m.stratum}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-          </div>
+          </>
         )}
         {type === 'chronicle' && (
           <>

@@ -31,8 +31,8 @@
 //! via channel disconnection.
 
 use crate::sim_proxy::{
-    ControlCommand, FieldSnapshot, RestoreResult, SignalHistoryBuffer, SimCommand, SimProxy,
-    SimStatus,
+    ControlCommand, FieldSnapshot, MemberValuesResult, RestoreResult, SignalHistoryBuffer,
+    SimCommand, SimProxy, SimStatus,
 };
 use crate::world_api::WorldEvent;
 use continuum_runtime::Runtime;
@@ -450,6 +450,26 @@ fn handle_sim_cmd(
         SimCommand::GetAssertionFailures { reply } => {
             let failures = runtime.assertion_checker().failures().to_vec();
             let _ = reply.send(failures);
+        }
+
+        SimCommand::GetMemberValues { signal_name, reply } => {
+            let msb = runtime.member_signals();
+            let entity_id = msb.entity_id_from_signal(&signal_name).unwrap_or_default();
+            let count = msb.instance_count_for_signal(&signal_name);
+            let mut values = Vec::with_capacity(count);
+            for idx in 0..count {
+                if let Some(val) = msb.get_current(&signal_name, idx) {
+                    values.push((idx, val));
+                }
+            }
+            let result = MemberValuesResult {
+                entity_id,
+                instance_count: count,
+                tick: runtime.tick(),
+                sim_time: runtime.sim_time(),
+                values,
+            };
+            let _ = reply.send(result);
         }
     }
 }
