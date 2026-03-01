@@ -106,7 +106,7 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse,
                 <div key={idx} class="item chronicle-item" onClick={() => handleSelectChronicle(chron)}>
                   <div class="chronicle-name">{chron.name}</div>
                   <div class="chronicle-meta">
-                    Tick {chron.tick} &bull; Era: {chron.era} &bull; {chron.sim_time.toFixed(2)}s
+                    Tick {chron.tick ?? '?'} &bull; Era: {chron.era ?? '?'} &bull; {chron.sim_time != null ? chron.sim_time.toFixed(2) + 's' : ''}
                   </div>
                 </div>
               ))
