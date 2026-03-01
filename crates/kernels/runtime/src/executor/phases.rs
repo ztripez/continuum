@@ -532,7 +532,7 @@ impl PhaseExecutor {
             for level in &dag.levels {
                 // Check for breakpoints in this level BEFORE executing it
                 for node in &level.nodes {
-                    if let NodeKind::SignalResolve { signal, .. } = &node.kind
+                    if let NodeKind::SignalResolve { signal, entity: None, .. } = &node.kind
                         && breakpoints.contains(signal) {
                             debug!(%signal, "breakpoint hit");
                             return Ok(Some(signal.clone()));
@@ -549,15 +549,17 @@ impl PhaseExecutor {
                         NodeKind::SignalResolve {
                             signal,
                             resolver_idx,
+                            entity: None,
                         } => {
                             let inputs = input_channels.drain_sum(signal);
                             signal_tasks.push((signal.clone(), *resolver_idx, inputs));
                         }
-                        NodeKind::MemberSignalResolve {
-                            member_signal,
-                            kernel_idx,
+                        NodeKind::SignalResolve {
+                            entity: Some(entity_ctx),
+                            resolver_idx,
+                            ..
                         } => {
-                            member_tasks.push((member_signal.clone(), *kernel_idx));
+                            member_tasks.push((entity_ctx.member_signal.clone(), *resolver_idx));
                         }
                         NodeKind::PopulationAggregate {
                             output_signal,

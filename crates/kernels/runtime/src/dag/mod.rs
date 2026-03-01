@@ -40,5 +40,5 @@ pub use builder::{
 };
 pub use collection::{DagSet, EraDags};
 pub use topology::CycleError;
-pub use types::{DagNode, ExecutableDag, Level, NodeId, NodeKind};
+pub use types::{DagNode, ExecutableDag, Level, NodeId, NodeKind, SignalEntityContext};
 pub use verification::{verify_barrier_semantics, BarrierViolation};

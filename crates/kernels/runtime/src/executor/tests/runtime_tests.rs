@@ -215,6 +215,7 @@ fn test_measure_phase_field_emission() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let resolve_dag = resolve_builder.build().unwrap();
@@ -302,6 +303,7 @@ fn test_impulse_injection() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let resolve_dag = resolve_builder.build().unwrap();
@@ -378,6 +380,7 @@ fn test_assertion_during_resolve() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let dag = builder.build().unwrap();
@@ -454,6 +457,7 @@ fn test_era_transition() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let dag = builder.build().unwrap();
@@ -470,6 +474,7 @@ fn test_era_transition() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let dag_b = builder_b.build().unwrap();
@@ -559,6 +564,7 @@ fn test_stratum_gating() {
         kind: NodeKind::SignalResolve {
             signal: active_signal.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
 
@@ -570,6 +576,7 @@ fn test_stratum_gating() {
         kind: NodeKind::SignalResolve {
             signal: gated_signal.clone(),
             resolver_idx: 1,
+            entity: None,
         },
     });
 
@@ -639,6 +646,7 @@ fn test_parallel_level_signals() {
         kind: NodeKind::SignalResolve {
             signal: signal_a.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     builder.add_node(DagNode {
@@ -648,6 +656,7 @@ fn test_parallel_level_signals() {
         kind: NodeKind::SignalResolve {
             signal: signal_b.clone(),
             resolver_idx: 1,
+            entity: None,
         },
     });
 
@@ -709,6 +718,7 @@ fn test_dependency_chain_levels() {
         kind: NodeKind::SignalResolve {
             signal: signal_a.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     builder.add_node(DagNode {
@@ -718,6 +728,7 @@ fn test_dependency_chain_levels() {
         kind: NodeKind::SignalResolve {
             signal: signal_b.clone(),
             resolver_idx: 1,
+            entity: None,
         },
     });
     builder.add_node(DagNode {
@@ -727,6 +738,7 @@ fn test_dependency_chain_levels() {
         kind: NodeKind::SignalResolve {
             signal: signal_c.clone(),
             resolver_idx: 2,
+            entity: None,
         },
     });
 
@@ -793,6 +805,7 @@ fn test_chronicle_event_emission() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let resolve_dag = resolve_builder.build().unwrap();
@@ -893,6 +906,7 @@ fn test_chronicle_no_emission_when_condition_false() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let resolve_dag = resolve_builder.build().unwrap();

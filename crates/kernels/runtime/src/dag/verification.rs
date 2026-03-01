@@ -22,8 +22,26 @@ pub fn verify_barrier_semantics(dag: &ExecutableDag) -> Result<(), BarrierViolat
     for (level_idx, level) in dag.levels.iter().enumerate() {
         for node in &level.nodes {
             match &node.kind {
-                NodeKind::MemberSignalResolve { member_signal, .. } => {
-                    member_signal_levels.insert(member_signal.clone(), level_idx);
+                NodeKind::SignalResolve {
+                    signal,
+                    entity: Some(ctx),
+                    ..
+                } => {
+                    // Member signal — track level for barrier verification
+                    member_signal_levels.insert(ctx.member_signal.clone(), level_idx);
+
+                    // Also check if this signal reads from any aggregate
+                    for read_signal in &node.reads {
+                        if let Some(&agg_level) = aggregate_levels.get(read_signal)
+                            && level_idx <= agg_level {
+                                return Err(BarrierViolation::SignalBeforeAggregate {
+                                    signal: signal.clone(),
+                                    aggregate_signal: read_signal.clone(),
+                                    signal_level: level_idx,
+                                    aggregate_level: agg_level,
+                                });
+                            }
+                    }
                 }
                 NodeKind::PopulationAggregate {
                     member_signal,
@@ -43,8 +61,12 @@ pub fn verify_barrier_semantics(dag: &ExecutableDag) -> Result<(), BarrierViolat
                             });
                         }
                 }
-                NodeKind::SignalResolve { signal, .. } => {
-                    // Check if this signal reads from any aggregate
+                NodeKind::SignalResolve {
+                    signal,
+                    entity: None,
+                    ..
+                } => {
+                    // Global signal — check if this signal reads from any aggregate
                     for read_signal in &node.reads {
                         if let Some(&agg_level) = aggregate_levels.get(read_signal)
                             && level_idx <= agg_level {

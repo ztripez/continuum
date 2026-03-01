@@ -148,13 +148,19 @@ impl BarrierDagBuilder {
         self.member_signal_nodes
             .insert(member_signal.clone(), node_id.clone());
 
+        let signal = SignalId::from(format!(
+            "{}.{}",
+            member_signal.entity_id, member_signal.signal_name
+        ));
+
         self.nodes.push(DagNode {
             id: node_id,
             reads: HashSet::new(), // Member signals read from previous tick
             writes: None,          // Writes to population storage, not global signal
-            kind: NodeKind::MemberSignalResolve {
-                member_signal,
-                kernel_idx,
+            kind: NodeKind::SignalResolve {
+                signal,
+                resolver_idx: kernel_idx,
+                entity: Some(super::types::SignalEntityContext { member_signal }),
             },
         });
     }
@@ -217,6 +223,7 @@ impl BarrierDagBuilder {
             kind: NodeKind::SignalResolve {
                 signal,
                 resolver_idx,
+                entity: None,
             },
         });
     }

@@ -28,6 +28,20 @@ pub struct DagNode {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub String);
 
+/// Entity context for signal resolution nodes.
+///
+/// When present, indicates this signal belongs to a non-root entity
+/// and must be resolved per-instance. The signal values are stored in
+/// `MemberSignalBuffer` rather than `SignalStorage`.
+///
+/// When absent (`None`), the signal is a root-entity member (global signal)
+/// with implicit instance count of 1, stored in `SignalStorage`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalEntityContext {
+    /// The member signal identifier (entity_id + signal_name).
+    pub member_signal: MemberSignalId,
+}
+
 /// The type of work a DAG node performs during execution.
 ///
 /// Different node kinds execute in different phases and have different
@@ -35,11 +49,19 @@ pub struct NodeId(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeKind {
     /// Compute a new signal value from its resolver expression.
+    ///
+    /// Handles both global signals (root entity, count=1) and member signals
+    /// (child entities, count=N). When `entity` is `Some`, the resolver
+    /// iterates over all entity instances. When `None`, it resolves once
+    /// for the root entity.
     SignalResolve {
         /// The signal being resolved.
         signal: SignalId,
-        /// Index into the resolver function table.
+        /// Index into the resolver/bytecode block table.
         resolver_idx: usize,
+        /// Entity context for per-instance resolution. `None` for root entity
+        /// members (globals), `Some` for child entity members.
+        entity: Option<SignalEntityContext>,
     },
     /// Execute a collect-phase operator that accumulates inputs.
     OperatorCollect {
@@ -69,16 +91,6 @@ pub enum NodeKind {
     ChronicleObserve {
         /// Index into the chronicle handler table.
         chronicle_idx: usize,
-    },
-    /// Execute a lane kernel for member signal resolution (L1/L2/L3).
-    ///
-    /// This is the two-level execution model where a DAG node can expand
-    /// internally to a vectorized lane kernel operating over all instances.
-    MemberSignalResolve {
-        /// The member signal being resolved.
-        member_signal: MemberSignalId,
-        /// Index into the lane kernel registry.
-        kernel_idx: usize,
     },
     /// Compute a population aggregate over an entity's member signal.
     ///

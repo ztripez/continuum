@@ -21,6 +21,7 @@ fn make_node(id: &str, reads: &[&str], writes: Option<&str>) -> DagNode {
         kind: NodeKind::SignalResolve {
             signal: SignalId::from(writes.unwrap_or(id)),
             resolver_idx: 0,
+            entity: None,
         },
     }
 }
@@ -272,10 +273,13 @@ fn test_barrier_dag_builder_member_signal_before_aggregate() {
     assert_eq!(dag.levels[0].nodes.len(), 1);
     assert_eq!(dag.levels[1].nodes.len(), 1);
 
-    // Check level 0 is the member signal
+    // Check level 0 is the member signal (entity context present)
     assert!(matches!(
         dag.levels[0].nodes[0].kind,
-        NodeKind::MemberSignalResolve { .. }
+        NodeKind::SignalResolve {
+            entity: Some(_),
+            ..
+        }
     ));
 
     // Check level 1 is the aggregate
@@ -318,7 +322,10 @@ fn test_barrier_dag_builder_signal_after_aggregate() {
     assert_eq!(dag.levels.len(), 3);
     assert!(matches!(
         dag.levels[0].nodes[0].kind,
-        NodeKind::MemberSignalResolve { .. }
+        NodeKind::SignalResolve {
+            entity: Some(_),
+            ..
+        }
     ));
     assert!(matches!(
         dag.levels[1].nodes[0].kind,
@@ -326,7 +333,7 @@ fn test_barrier_dag_builder_signal_after_aggregate() {
     ));
     assert!(matches!(
         dag.levels[2].nodes[0].kind,
-        NodeKind::SignalResolve { .. }
+        NodeKind::SignalResolve { entity: None, .. }
     ));
 }
 
@@ -440,9 +447,12 @@ fn test_verify_barrier_semantics_rejects_aggregate_before_member() {
         id: NodeId("member.entity.value".to_string()),
         reads: HashSet::new(),
         writes: None,
-        kind: NodeKind::MemberSignalResolve {
-            member_signal: member_signal.clone(),
-            kernel_idx: 0,
+        kind: NodeKind::SignalResolve {
+            signal: SignalId::from("entity.value"),
+            resolver_idx: 0,
+            entity: Some(super::types::SignalEntityContext {
+                member_signal: member_signal.clone(),
+            }),
         },
     };
 
@@ -505,9 +515,12 @@ fn test_verify_barrier_semantics_rejects_signal_before_aggregate() {
         id: NodeId("member.entity.value".to_string()),
         reads: HashSet::new(),
         writes: None,
-        kind: NodeKind::MemberSignalResolve {
-            member_signal: member_signal.clone(),
-            kernel_idx: 0,
+        kind: NodeKind::SignalResolve {
+            signal: SignalId::from("entity.value"),
+            resolver_idx: 0,
+            entity: Some(super::types::SignalEntityContext {
+                member_signal: member_signal.clone(),
+            }),
         },
     };
 
@@ -536,6 +549,7 @@ fn test_verify_barrier_semantics_rejects_signal_before_aggregate() {
         kind: NodeKind::SignalResolve {
             signal: derived_signal.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     };
 

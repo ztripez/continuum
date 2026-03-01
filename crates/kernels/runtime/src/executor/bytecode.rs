@@ -225,7 +225,9 @@ impl BytecodePhaseExecutor {
                         NodeKind::SignalResolve {
                             signal,
                             resolver_idx,
+                            entity: None,
                         } => {
+                            // Global signal (root entity, count=1)
                             let compiled = compiled_blocks.get(*resolver_idx).ok_or_else(|| {
                                 Error::ExecutionFailure {
                                     message: format!(
@@ -290,15 +292,18 @@ impl BytecodePhaseExecutor {
 
                             level_results.push((signal.clone(), value));
                         }
-                        NodeKind::MemberSignalResolve {
-                            member_signal,
-                            kernel_idx,
+                        NodeKind::SignalResolve {
+                            resolver_idx,
+                            entity: Some(entity_ctx),
+                            ..
                         } => {
-                            let compiled = compiled_blocks.get(*kernel_idx).ok_or_else(|| {
+                            // Member signal (child entity, count=N)
+                            let member_signal = &entity_ctx.member_signal;
+                            let compiled = compiled_blocks.get(*resolver_idx).ok_or_else(|| {
                                 Error::ExecutionFailure {
                                     message: format!(
                                         "Missing bytecode block for member signal configure {}",
-                                        kernel_idx
+                                        resolver_idx
                                     ),
                                 }
                             })?;
@@ -319,7 +324,7 @@ impl BytecodePhaseExecutor {
 
                             // Execute for each entity instance
                             for instance_idx in 0..instance_count {
-                                let entity_ctx = EntityContext {
+                                let vm_entity_ctx = EntityContext {
                                     entity_id: &member_signal.entity_id,
                                     instance_index: instance_idx,
                                     target_member: &Path::from(full_signal_path.clone()),
@@ -343,7 +348,7 @@ impl BytecodePhaseExecutor {
                                     None,
                                     None,
                                     None,
-                                    Some(entity_ctx),
+                                    Some(vm_entity_ctx),
                                 );
 
                                 let value = executor
@@ -531,7 +536,9 @@ impl BytecodePhaseExecutor {
                         NodeKind::SignalResolve {
                             signal,
                             resolver_idx,
+                            entity: None,
                         } => {
+                            // Global signal (root entity, count=1)
                             let compiled = compiled_blocks.get(*resolver_idx).ok_or_else(|| {
                                 Error::ExecutionFailure {
                                     message: format!(
@@ -596,15 +603,18 @@ impl BytecodePhaseExecutor {
 
                             level_results.push((signal.clone(), value));
                         }
-                        NodeKind::MemberSignalResolve {
-                            member_signal,
-                            kernel_idx,
+                        NodeKind::SignalResolve {
+                            resolver_idx,
+                            entity: Some(entity_ctx),
+                            ..
                         } => {
-                            let compiled = compiled_blocks.get(*kernel_idx).ok_or_else(|| {
+                            // Member signal (child entity, count=N)
+                            let member_signal = &entity_ctx.member_signal;
+                            let compiled = compiled_blocks.get(*resolver_idx).ok_or_else(|| {
                                 Error::ExecutionFailure {
                                     message: format!(
                                         "Missing bytecode block for member signal resolve {}",
-                                        kernel_idx
+                                        resolver_idx
                                     ),
                                 }
                             })?;
@@ -628,7 +638,7 @@ impl BytecodePhaseExecutor {
                             // Execute bytecode for each entity instance
                             for instance_idx in 0..instance_count {
                                 // Set up entity context for this instance
-                                let entity_ctx = EntityContext {
+                                let vm_entity_ctx = EntityContext {
                                     entity_id: &member_signal.entity_id,
                                     instance_index: instance_idx,
                                     target_member: &Path::from(full_signal_path.clone()),
@@ -652,7 +662,7 @@ impl BytecodePhaseExecutor {
                                     None, // Member signals don't use target_signal
                                     None,
                                     None,
-                                    Some(entity_ctx),
+                                    Some(vm_entity_ctx),
                                 );
 
                                 // Execute bytecode with entity context
@@ -884,7 +894,6 @@ impl BytecodePhaseExecutor {
                             })?;
                         }
                         NodeKind::SignalResolve { .. }
-                        | NodeKind::MemberSignalResolve { .. }
                         | NodeKind::OperatorCollect { .. }
                         | NodeKind::Fracture { .. }
                         | NodeKind::ChronicleObserve { .. }

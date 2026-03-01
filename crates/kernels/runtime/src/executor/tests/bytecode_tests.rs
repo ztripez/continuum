@@ -68,6 +68,7 @@ fn test_bytecode_integration_resolve_simple() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 0,
+            entity: None,
         },
     });
     let dag = builder.build().unwrap();
@@ -174,6 +175,7 @@ fn test_bytecode_integration_collect_emit() {
         kind: NodeKind::SignalResolve {
             signal: signal_id.clone(),
             resolver_idx: 1,
+            entity: None,
         },
     });
     let resolve_dag = resolve_builder.build().unwrap();

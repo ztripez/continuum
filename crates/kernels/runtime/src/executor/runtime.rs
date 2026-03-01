@@ -312,8 +312,8 @@ impl Runtime {
             for dag in era_dags.for_phase(Phase::Resolve) {
                 for level in &dag.levels {
                     for node in &level.nodes {
-                        if let NodeKind::SignalResolve { signal, .. } = &node.kind {
-                            // Signals must be initialized before first Resolve phase
+                        if let NodeKind::SignalResolve { signal, entity: None, .. } = &node.kind {
+                            // Global signals must be initialized before first Resolve phase
                             if !self.storage.signals.has(signal) {
                                 panic!("Signal '{}' in DAG not initialized before Resolve phase. This indicates a compiler/loader bug.", signal);
                             }

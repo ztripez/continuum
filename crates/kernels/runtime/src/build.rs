@@ -6,7 +6,7 @@
 //! signal seeding.
 
 use crate::bytecode::CompiledBlock;
-use crate::dag::NodeKind;
+use crate::dag::{self, NodeKind};
 use crate::executor::{EraConfig, Runtime};
 use crate::soa_storage::ValueType;
 use crate::types::*;
@@ -608,7 +608,7 @@ fn compile_bytecode_and_dags(
                 let node_kind = match (role_id, *phase) {
                     (RoleId::Signal, Phase::Configure) | (RoleId::Signal, Phase::Resolve) => {
                         // Check if this is a member signal (has entity association)
-                        if node.entity.is_some() {
+                        let entity = if node.entity.is_some() {
                             // Parse domain.entity.member path
                             let path_str = path.to_string();
                             let path_parts: Vec<&str> = path_str.split('.').collect();
@@ -621,19 +621,20 @@ fn compile_bytecode_and_dags(
                             let entity_id =
                                 EntityId::from(path_parts[..path_parts.len() - 1].join("."));
 
-                            NodeKind::MemberSignalResolve {
+                            Some(dag::SignalEntityContext {
                                 member_signal: MemberSignalId {
                                     entity_id,
                                     signal_name,
                                 },
-                                kernel_idx: block_idx,
-                            }
+                            })
                         } else {
-                            // Regular global signal
-                            NodeKind::SignalResolve {
-                                signal: SignalId::from(path.to_string()),
-                                resolver_idx: block_idx,
-                            }
+                            None
+                        };
+
+                        NodeKind::SignalResolve {
+                            signal: SignalId::from(path.to_string()),
+                            resolver_idx: block_idx,
+                            entity,
                         }
                     }
                     (RoleId::Operator, Phase::Collect) | (RoleId::Impulse, Phase::Collect) => {
