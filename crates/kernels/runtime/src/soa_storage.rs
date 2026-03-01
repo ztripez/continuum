@@ -1507,19 +1507,29 @@ impl MemberSignalBuffer {
         self.registry.get(signal).is_some()
     }
 
-    /// Get all global signal names (signals belonging to the root entity).
+    /// Get all global signal names (signals not belonging to a registered entity).
+    ///
+    /// A signal is global if its dot-separated prefix does not match any
+    /// registered entity ID. This correctly handles namespaced global paths
+    /// like `core.temp` where `core` is a namespace, not an entity.
     pub fn global_signal_names(&self) -> Vec<&String> {
         self.registry
             .iter()
             .filter_map(|(name, _)| {
-                if self.entity_id_from_signal(name).as_deref() == Some(Self::ROOT_ENTITY) {
-                    Some(name)
-                } else if self.entity_id_from_signal(name).is_none() {
-                    // Signals without a dot-separated entity prefix are also globals
-                    // (e.g., "counter" as opposed to "terra.plate.age")
-                    Some(name)
-                } else {
-                    None
+                match self.entity_id_from_signal(name) {
+                    Some(prefix) => {
+                        // Only exclude if the prefix is an actual registered entity
+                        // (not just a namespace path like "core" in "core.temp")
+                        if self.entity_instance_counts.contains_key(&prefix) {
+                            None
+                        } else {
+                            Some(name)
+                        }
+                    }
+                    None => {
+                        // No dot-separated prefix — always a global
+                        Some(name)
+                    }
                 }
             })
             .collect()
@@ -1872,5 +1882,41 @@ mod tests {
         assert_eq!(buf.get_global_prev("counter"), Some(Value::Scalar(99.0)));
         // Current unchanged
         assert_eq!(buf.get_global("counter"), Some(Value::Scalar(1.0)));
+    }
+
+    #[test]
+    fn test_global_signal_names_includes_dotted_globals() {
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_root_entity();
+
+        // Dotted global signals (namespace paths, not entities)
+        buf.register_global_signal("core.temp", ValueType::scalar());
+        buf.register_global_signal("surface.temp", ValueType::scalar());
+        // Undotted global
+        buf.register_global_signal("gradient", ValueType::scalar());
+        // Entity member signal
+        buf.register_signal("terra.plate.age".to_string(), ValueType::scalar());
+        buf.register_entity_count("terra.plate", 4);
+
+        buf.init_instances(4);
+
+        let globals = buf.global_signal_names();
+        let global_strs: Vec<&str> = globals.iter().map(|s| s.as_str()).collect();
+
+        // Dotted globals must be included (not entities)
+        assert!(global_strs.contains(&"core.temp"), "core.temp should be global");
+        assert!(
+            global_strs.contains(&"surface.temp"),
+            "surface.temp should be global"
+        );
+        assert!(
+            global_strs.contains(&"gradient"),
+            "gradient should be global"
+        );
+        // Entity member must be excluded
+        assert!(
+            !global_strs.contains(&"terra.plate.age"),
+            "terra.plate.age should NOT be global"
+        );
     }
 }
