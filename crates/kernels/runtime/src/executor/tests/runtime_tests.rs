@@ -262,7 +262,7 @@ fn test_measure_phase_field_emission() {
     runtime.register_measure_op(Box::new(move |ctx| {
         let temp = ctx
             .signals
-            .get(&signal_id_clone)
+            .get_global_or_prev(&signal_id_clone.to_string())
             .unwrap()
             .as_scalar()
             .unwrap();
@@ -344,18 +344,18 @@ fn test_impulse_injection() {
 
     // Tick 1: no impulse, signal stays at 0
     runtime.execute_tick().unwrap();
-    assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(0.0)));
+    assert_eq!(runtime.get_signal(&signal_id), Some(Value::Scalar(0.0)));
 
     // Inject impulse for next tick
     runtime.inject_impulse(handler_idx, Value::Scalar(100.0));
 
     // Tick 2: impulse adds 100
     runtime.execute_tick().unwrap();
-    assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(100.0)));
+    assert_eq!(runtime.get_signal(&signal_id), Some(Value::Scalar(100.0)));
 
     // Tick 3: no impulse, signal stays at 100
     runtime.execute_tick().unwrap();
-    assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(100.0)));
+    assert_eq!(runtime.get_signal(&signal_id), Some(Value::Scalar(100.0)));
 
     // Inject multiple impulses
     runtime.inject_impulse(handler_idx, Value::Scalar(25.0));
@@ -363,7 +363,7 @@ fn test_impulse_injection() {
 
     // Tick 4: both impulses add 50 total
     runtime.execute_tick().unwrap();
-    assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(150.0)));
+    assert_eq!(runtime.get_signal(&signal_id), Some(Value::Scalar(150.0)));
 }
 
 #[test]
@@ -495,7 +495,7 @@ fn test_era_transition() {
         dt: Dt(1.0),
         strata: strata_a.clone(),
         transition: Some(Box::new(move |signals, _entities, _sim_time| {
-            if let Some(value) = signals.get(&signal_id_clone)
+            if let Some(value) = signals.get_global_or_prev(&signal_id_clone.to_string())
                 && value.as_scalar().unwrap_or(0.0) >= 5.0 {
                     return Some(era_b_clone.clone());
                 }
@@ -622,11 +622,11 @@ fn test_stratum_gating() {
     // Active signal should have incremented
     assert_eq!(
         runtime.get_signal(&active_signal),
-        Some(&Value::Scalar(1.0))
+        Some(Value::Scalar(1.0))
     );
 
     // Gated signal should NOT have changed (gated stratum skipped)
-    assert_eq!(runtime.get_signal(&gated_signal), Some(&Value::Scalar(0.0)));
+    assert_eq!(runtime.get_signal(&gated_signal), Some(Value::Scalar(0.0)));
 }
 
 #[test]
@@ -697,8 +697,8 @@ fn test_parallel_level_signals() {
     runtime.execute_tick().unwrap();
 
     // Both signals should have been resolved
-    assert_eq!(runtime.get_signal(&signal_a), Some(&Value::Scalar(1.0)));
-    assert_eq!(runtime.get_signal(&signal_b), Some(&Value::Scalar(100.0)));
+    assert_eq!(runtime.get_signal(&signal_a), Some(Value::Scalar(1.0)));
+    assert_eq!(runtime.get_signal(&signal_b), Some(Value::Scalar(100.0)));
 }
 
 #[test]
@@ -769,12 +769,12 @@ fn test_dependency_chain_levels() {
     runtime.register_resolver(Box::new(|_| Value::Scalar(10.0)));
     // B: reads A and doubles it
     runtime.register_resolver(Box::new(|ctx| {
-        let a = ctx.signals.get(&"a".into()).unwrap().as_scalar().unwrap();
+        let a = ctx.signals.get_global_or_prev("a").unwrap().as_scalar().unwrap();
         Value::Scalar(a * 2.0)
     }));
     // C: reads B and doubles it
     runtime.register_resolver(Box::new(|ctx| {
-        let b = ctx.signals.get(&"b".into()).unwrap().as_scalar().unwrap();
+        let b = ctx.signals.get_global_or_prev("b").unwrap().as_scalar().unwrap();
         Value::Scalar(b * 2.0)
     }));
 
@@ -785,9 +785,9 @@ fn test_dependency_chain_levels() {
     runtime.execute_tick().unwrap();
 
     // Chain: A=10, B=20, C=40
-    assert_eq!(runtime.get_signal(&signal_a), Some(&Value::Scalar(10.0)));
-    assert_eq!(runtime.get_signal(&signal_b), Some(&Value::Scalar(20.0)));
-    assert_eq!(runtime.get_signal(&signal_c), Some(&Value::Scalar(40.0)));
+    assert_eq!(runtime.get_signal(&signal_a), Some(Value::Scalar(10.0)));
+    assert_eq!(runtime.get_signal(&signal_b), Some(Value::Scalar(20.0)));
+    assert_eq!(runtime.get_signal(&signal_c), Some(Value::Scalar(40.0)));
 }
 
 #[test]
@@ -851,7 +851,7 @@ fn test_chronicle_event_emission() {
     runtime.register_chronicle(Box::new(move |ctx| {
         let temp = ctx
             .signals
-            .get(&signal_id_clone)
+            .get_global_or_prev(&signal_id_clone.to_string())
             .unwrap()
             .as_scalar()
             .unwrap();
@@ -870,7 +870,7 @@ fn test_chronicle_event_emission() {
 
     // Tick 1: temp = 110, should emit event
     runtime.execute_tick().unwrap();
-    assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(110.0)));
+    assert_eq!(runtime.get_signal(&signal_id), Some(Value::Scalar(110.0)));
 
     // Check event buffer
     assert!(!runtime.event_buffer().is_empty());
@@ -949,7 +949,7 @@ fn test_chronicle_no_emission_when_condition_false() {
     runtime.register_chronicle(Box::new(move |ctx| {
         let pressure = ctx
             .signals
-            .get(&signal_id_clone)
+            .get_global_or_prev(&signal_id_clone.to_string())
             .unwrap()
             .as_scalar()
             .unwrap();

@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
 use crate::soa_storage::MemberSignalBuffer;
-use crate::storage::{EntityStorage, SignalStorage};
+use crate::storage::EntityStorage;
 use crate::types::{EraId, StratumId, StratumState, Value};
 
 /// Checkpoint format version (increment on breaking changes).
@@ -158,9 +158,6 @@ impl MemberSignalData {
 /// Complete checkpoint state (all causal state for resume).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointState {
-    /// Global signal values (current + previous tick)
-    pub signals: SignalStorage,
-
     /// Entity instances
     pub entities: EntityStorage,
 
@@ -526,7 +523,6 @@ mod tests {
                 world_git_hash: None,
             },
             state: CheckpointState {
-                signals: SignalStorage::default(),
                 entities: EntityStorage::default(),
                 member_signals: MemberSignalData {
                     signals: IndexMap::new(),

@@ -46,8 +46,8 @@
 //! ```
 
 use super::lowering_strategy::LoweringStrategy;
-use crate::soa_storage::PopulationStorage;
-use crate::storage::{EntityStorage, SignalStorage};
+use crate::soa_storage::{MemberSignalBuffer, PopulationStorage};
+use crate::storage::EntityStorage;
 use crate::types::Dt;
 use crate::vectorized::MemberSignalId;
 
@@ -97,7 +97,7 @@ pub trait LaneKernel: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `signals` - Read-only access to global signals
+    /// * `signals` - Read-only access to global signals (via `MemberSignalBuffer`)
     /// * `entities` - Read-only access to entity storage
     /// * `population` - Read-write access to population storage
     /// * `dt` - Time step for this tick
@@ -108,7 +108,7 @@ pub trait LaneKernel: Send + Sync {
     /// Result containing execution statistics, or an error.
     fn execute(
         &self,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         entities: &EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,

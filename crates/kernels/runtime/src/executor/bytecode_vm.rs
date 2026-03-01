@@ -11,9 +11,7 @@ use crate::bytecode::runtime::{ExecutionContext, ExecutionError};
 use crate::executor::bytecode::VMConfig;
 use crate::reductions;
 use crate::soa_storage::MemberSignalBuffer;
-use crate::storage::{
-    EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage,
-};
+use crate::storage::{EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels};
 use crate::types::{Dt, EraId, Phase, SignalId, Value};
 use continuum_cdsl::foundation::{Shape, Type};
 use continuum_foundation::{AggregateOp, EntityId, Mat2, Mat3, Mat4, Path};
@@ -70,8 +68,6 @@ pub struct VMContext<'a> {
     pub dt: Dt,
     /// Accumulated simulation time in seconds
     pub sim_time: f64,
-    /// Global signal storage (current and previous values)
-    pub signals: &'a SignalStorage,
     /// Entity instance storage
     pub entities: &'a EntityStorage,
     /// Member signal buffer (SoA per-entity state)
@@ -133,7 +129,6 @@ impl<'a> VMContext<'a> {
         era: &'a EraId,
         dt: Dt,
         sim_time: f64,
-        signals: &'a SignalStorage,
         entities: &'a EntityStorage,
         member_signals: &'a MemberSignalBuffer,
         channels: &'a mut InputChannels,
@@ -150,7 +145,6 @@ impl<'a> VMContext<'a> {
             era,
             dt,
             sim_time,
-            signals,
             entities,
             member_signals,
             channels,
@@ -175,9 +169,8 @@ impl<'a> ExecutionContext for VMContext<'a> {
     }
 
     fn load_signal(&self, path: &Path) -> std::result::Result<Value, ExecutionError> {
-        self.signals
-            .get(&SignalId::from(path.clone()))
-            .cloned()
+        self.member_signals
+            .get_global_or_prev(&path.to_string())
             .ok_or_else(|| ExecutionError::InvalidOperand {
                 message: format!("Signal not found: {}", path),
             })
@@ -237,9 +230,8 @@ impl<'a> ExecutionContext for VMContext<'a> {
                         opcode: "LoadPrev requires target signal or entity context".to_string(),
                         phase: self.phase,
                     })?;
-            self.signals
-                .get_prev(signal)
-                .cloned()
+            self.member_signals
+                .get_global_prev(&signal.to_string())
                 .ok_or_else(|| ExecutionError::InvalidOperand {
                     message: format!("Signal '{}' has no previous value", signal),
                 })
@@ -275,9 +267,8 @@ impl<'a> ExecutionContext for VMContext<'a> {
                         opcode: "LoadCurrent requires target signal or entity context".to_string(),
                         phase: self.phase,
                     })?;
-            self.signals
-                .get(signal)
-                .cloned()
+            self.member_signals
+                .get_global_or_prev(&signal.to_string())
                 .ok_or_else(|| ExecutionError::InvalidOperand {
                     message: format!("Signal '{}' has no resolved value", signal),
                 })

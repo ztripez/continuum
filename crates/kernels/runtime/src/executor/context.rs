@@ -3,15 +3,16 @@
 //! Each phase has a specific context type that provides access to
 //! the appropriate data and operations.
 
-use crate::storage::{EntityStorage, FieldBuffer, InputChannels, SignalStorage};
+use crate::soa_storage::MemberSignalBuffer;
+use crate::storage::EntityStorage;
 use crate::types::{Dt, Value};
 
 /// Context available to warmup functions
 pub struct WarmupContext<'a> {
     /// Current warmup value for this signal
     pub prev: &'a Value,
-    /// Access to other signals (current iteration if resolved, else previous)
-    pub signals: &'a SignalStorage,
+    /// Access to other signals via member signal buffer
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Current warmup iteration (0-indexed)
@@ -24,8 +25,8 @@ pub struct WarmupContext<'a> {
 pub struct ResolveContext<'a> {
     /// Previous tick's value for this signal
     pub prev: &'a Value,
-    /// Access to other signals (current tick if resolved, else previous)
-    pub signals: &'a SignalStorage,
+    /// Access to other signals via member signal buffer
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Accumulated inputs for this signal
@@ -38,12 +39,12 @@ pub struct ResolveContext<'a> {
 
 /// Context available to collect operators
 pub struct CollectContext<'a> {
-    /// Access to signals (previous tick values)
-    pub signals: &'a SignalStorage,
+    /// Access to signals via member signal buffer (previous tick values)
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Channel to write inputs
-    pub channels: &'a mut InputChannels,
+    pub channels: &'a mut crate::storage::InputChannels,
     /// Time step
     pub dt: Dt,
     /// Accumulated simulation time in seconds
@@ -52,8 +53,8 @@ pub struct CollectContext<'a> {
 
 /// Context available to fracture evaluation
 pub struct FractureContext<'a> {
-    /// Access to signals (current tick values)
-    pub signals: &'a SignalStorage,
+    /// Access to signals via member signal buffer (current tick values)
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Time step
@@ -64,12 +65,12 @@ pub struct FractureContext<'a> {
 
 /// Context available to measure operators
 pub struct MeasureContext<'a> {
-    /// Access to signals (current tick values, post-resolve)
-    pub signals: &'a SignalStorage,
+    /// Access to signals via member signal buffer (current tick values, post-resolve)
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Field buffer for emission
-    pub fields: &'a mut FieldBuffer,
+    pub fields: &'a mut crate::storage::FieldBuffer,
     /// Time step
     pub dt: Dt,
     /// Accumulated simulation time in seconds
@@ -78,12 +79,12 @@ pub struct MeasureContext<'a> {
 
 /// Context available to impulse application
 pub struct ImpulseContext<'a> {
-    /// Access to signals (previous tick values)
-    pub signals: &'a SignalStorage,
+    /// Access to signals via member signal buffer (previous tick values)
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Channel to write inputs
-    pub channels: &'a mut InputChannels,
+    pub channels: &'a mut crate::storage::InputChannels,
     /// Time step
     pub dt: Dt,
     /// Accumulated simulation time in seconds
@@ -96,8 +97,8 @@ pub struct AssertContext<'a> {
     pub current: &'a Value,
     /// Previous tick's value
     pub prev: &'a Value,
-    /// Access to all signals
-    pub signals: &'a SignalStorage,
+    /// Access to all signals via member signal buffer
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Time step
@@ -111,8 +112,8 @@ pub struct AssertContext<'a> {
 /// Chronicles are observer-only constructs that read resolved signals
 /// and emit events. They cannot affect causality.
 pub struct ChronicleContext<'a> {
-    /// Access to signals (current tick values, post-resolve)
-    pub signals: &'a SignalStorage,
+    /// Access to signals via member signal buffer (current tick values, post-resolve)
+    pub signals: &'a MemberSignalBuffer,
     /// Access to entity instances
     pub entities: &'a EntityStorage,
     /// Time step

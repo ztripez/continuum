@@ -223,10 +223,30 @@ impl Runtime {
             .register(signal, condition, severity, message);
     }
 
-    /// Initialize a signal with a value
+    /// Initialize a global signal with a value.
+    ///
+    /// Global signals are stored in `MemberSignalBuffer` under the root entity.
+    /// If the signal is not yet registered (e.g. in tests that bypass `build_runtime`),
+    /// it is auto-registered with a `ValueType` inferred from the value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if storage initialization fails (type mismatch, unsupported type).
     pub fn init_signal(&mut self, id: SignalId, value: Value) {
         tracing::debug!(signal = %id, ?value, "signal initialized");
-        self.storage.signals.init(id, value);
+
+        // Auto-register the signal if not already known.
+        // This handles the test path where init_signal is called without
+        // prior register_root_entity / register_global_signal / init_instances.
+        let value_type = crate::soa_storage::ValueType::from_value(&value);
+        self.storage
+            .member_signals
+            .ensure_global_signal(&id.to_string(), value_type);
+
+        self.storage
+            .member_signals
+            .init_global(&id.to_string(), value)
+            .unwrap_or_else(|e| panic!("failed to init global signal '{}': {}", id, e));
     }
 
     /// Initialize an entity type with its instances
@@ -234,6 +254,28 @@ impl Runtime {
         let count = instances.count();
         tracing::debug!(entity = %id, count, "entity initialized");
         self.storage.entities.init_entity(id, instances);
+    }
+
+    /// Register the root entity for global signals.
+    ///
+    /// Must be called before `init_member_instances`. Idempotent.
+    pub fn register_root_entity(&mut self) {
+        tracing::debug!("root entity registered for global signals");
+        self.storage.member_signals.register_root_entity();
+    }
+
+    /// Register a global signal in the member signal buffer.
+    ///
+    /// Must be called before `init_member_instances`.
+    pub fn register_global_signal(&mut self, signal_name: &str, value_type: MemberValueType) {
+        tracing::debug!(
+            signal = signal_name,
+            ?value_type,
+            "global signal registered in member buffer"
+        );
+        self.storage
+            .member_signals
+            .register_global_signal(signal_name, value_type);
     }
 
     /// Register a member signal type

@@ -12,8 +12,8 @@
 //! return errors — transition conditions are strictly read-only.
 
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError};
-use crate::storage::SignalStorage;
-use crate::types::{Dt, Phase, SignalId, Value};
+use crate::soa_storage::MemberSignalBuffer;
+use crate::types::{Dt, Phase, Value};
 use continuum_foundation::{AggregateOp, EntityId, Path};
 use indexmap::IndexMap;
 
@@ -28,8 +28,8 @@ use indexmap::IndexMap;
 pub struct TransitionEvalContext<'a> {
     /// Current era time step
     dt: Dt,
-    /// Resolved signal storage (current tick values)
-    signals: &'a SignalStorage,
+    /// Resolved signal storage (current tick values via global API)
+    signals: &'a MemberSignalBuffer,
     /// Frozen configuration values
     config_values: &'a IndexMap<Path, Value>,
     /// Frozen constant values
@@ -46,7 +46,7 @@ impl<'a> TransitionEvalContext<'a> {
     /// - `const_values`: Frozen world constant values
     pub fn new(
         dt: Dt,
-        signals: &'a SignalStorage,
+        signals: &'a MemberSignalBuffer,
         config_values: &'a IndexMap<Path, Value>,
         const_values: &'a IndexMap<Path, Value>,
     ) -> Self {
@@ -68,8 +68,7 @@ impl ExecutionContext for TransitionEvalContext<'_> {
 
     fn load_signal(&self, path: &Path) -> Result<Value, ExecutionError> {
         self.signals
-            .get(&SignalId::from(path.clone()))
-            .cloned()
+            .get_global_or_prev(&path.to_string())
             .ok_or_else(|| ExecutionError::InvalidOperand {
                 message: format!("Signal not found during transition eval: {path}"),
             })

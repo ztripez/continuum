@@ -1405,6 +1405,67 @@ impl MemberSignalBuffer {
         }
     }
 
+    /// Ensure a global signal is registered and its storage is allocated.
+    ///
+    /// Idempotent — safe to call multiple times for the same signal.
+    /// This is the incremental counterpart to the batch
+    /// `register_global_signal` + `init_instances` path used by `build_runtime`.
+    ///
+    /// When called on an already-initialized buffer, grows only the relevant
+    /// typed buffer by `instance_count` elements (appending at the end, which
+    /// is correct because new signals get the highest `buffer_index`).
+    ///
+    /// When called on a fresh buffer (instance_count=0), sets instance_count=1
+    /// and allocates storage for all registered signals so far.
+    pub fn ensure_global_signal(&mut self, name: &str, value_type: ValueType) {
+        // 1. Root entity must exist
+        self.register_root_entity();
+
+        // 2. Already registered — nothing to do
+        if self.registry.get(name).is_some() {
+            return;
+        }
+
+        // 3. Register the signal (assigns next buffer_index for its type)
+        self.registry.register(name.to_string(), value_type);
+
+        // 4. Ensure instance_count >= 1 for global signals
+        if self.instance_count == 0 {
+            // Fresh buffer — init everything for all registered signals
+            self.init_instances(1);
+        } else {
+            // Already initialized — grow only the relevant typed buffer
+            // by instance_count elements (one per entity instance for the new signal)
+            let ic = self.instance_count;
+            match value_type.buffer_class() {
+                MemberBufferClass::Scalar => {
+                    let new_count = self.registry.type_count(ValueType::scalar());
+                    self.scalars.init(new_count, ic);
+                }
+                MemberBufferClass::Vec2 => {
+                    let new_count = self.registry.type_count(ValueType::vec2());
+                    self.vec2s.init(new_count, ic);
+                }
+                MemberBufferClass::Vec3 => {
+                    let new_count = self.registry.type_count(ValueType::vec3());
+                    self.vec3s.init(new_count, ic);
+                }
+                MemberBufferClass::Vec4 => {
+                    let new_count = self.registry.type_count(ValueType::vec4());
+                    self.vec4s.init(new_count, ic);
+                }
+                MemberBufferClass::Boolean => {
+                    let new_count = self.registry.type_count(ValueType::boolean());
+                    self.booleans.init(new_count, ic);
+                }
+                MemberBufferClass::Integer => {
+                    let new_count = self.registry.type_count(ValueType::integer());
+                    self.integers.init(new_count, ic);
+                }
+            }
+        }
+    }
+
     /// Initialize a global signal: set both current and previous to the given value.
     ///
     /// Equivalent to the old `SignalStorage::init()` — ensures the signal has a value

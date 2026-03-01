@@ -5,7 +5,8 @@
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::error::{Error, Result};
-use crate::storage::{EntityStorage, SignalStorage};
+use crate::soa_storage::MemberSignalBuffer;
+use crate::storage::EntityStorage;
 use crate::types::{SignalId, Value, WarmupConfig, WarmupResult};
 
 use super::context::WarmupContext;
@@ -72,7 +73,7 @@ impl WarmupExecutor {
     #[instrument(skip(self, signals, entities), name = "warmup")]
     pub fn execute(
         &mut self,
-        signals: &mut SignalStorage,
+        signals: &mut MemberSignalBuffer,
         entities: &EntityStorage,
         sim_time: f64,
     ) -> Result<WarmupResult> {
@@ -122,11 +123,11 @@ impl WarmupExecutor {
                 }
 
                 let prev = signals
-                    .get(&warmup.signal)
+                    .get_global_or_prev(&warmup.signal.to_string())
                     .ok_or_else(|| Error::SignalNotFound(warmup.signal.clone()))?;
 
                 let ctx = WarmupContext {
-                    prev,
+                    prev: &prev,
                     signals,
                     entities,
                     iteration,
@@ -156,7 +157,7 @@ impl WarmupExecutor {
 
                     // Check convergence
                     if let Some(epsilon) = warmup.config.convergence_epsilon {
-                        if let Value::Scalar(prev_v) = prev {
+                        if let Value::Scalar(prev_v) = &prev {
                             let delta = (v - prev_v).abs();
                             max_delta = max_delta.max(delta);
                             if delta >= epsilon {
@@ -168,7 +169,14 @@ impl WarmupExecutor {
                     }
                 }
 
-                signals.set_current(warmup.signal.clone(), new_value);
+                signals
+                    .set_global(&warmup.signal.to_string(), new_value)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "warmup: failed to set global signal '{}': {}",
+                            warmup.signal, e
+                        )
+                    });
             }
 
             // Advance iteration state

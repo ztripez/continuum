@@ -1,12 +1,11 @@
-//! Signal and entity storage for simulation state.
+//! Entity and auxiliary storage for simulation state.
 //!
 //! This module provides storage types for managing simulation state across
-//! ticks. The storage system maintains both current and previous tick values,
-//! enabling the `prev` keyword in DSL expressions.
+//! ticks. Global signal storage has been migrated to `MemberSignalBuffer`
+//! in `soa_storage.rs`.
 //!
 //! # Key Types
 //!
-//! - [`SignalStorage`] - Double-buffered signal values with tick advancement
 //! - [`InputChannels`] - Accumulator for signal inputs during Collect phase
 //! - [`FractureQueue`] - Queue for fracture outputs to be processed next tick
 //! - [`FieldBuffer`] - Collector for measured field values
@@ -17,10 +16,10 @@
 //! Each tick follows this storage pattern:
 //!
 //! 1. **Collect** - Inputs accumulated via [`InputChannels::accumulate`]
-//! 2. **Resolve** - Signals read via [`SignalStorage::get`], written via `set_current`
+//! 2. **Resolve** - Signals read/written via `MemberSignalBuffer` global API
 //! 3. **Fracture** - Emissions queued via [`FractureQueue::queue`]
 //! 4. **Measure** - Fields emitted via [`FieldBuffer::emit_scalar`]
-//! 5. **Advance** - [`SignalStorage::advance_tick`] swaps current ↔ previous
+//! 5. **Advance** - `MemberSignalBuffer::advance_tick()` swaps current ↔ previous
 
 use indexmap::IndexMap;
 
@@ -29,110 +28,6 @@ pub use continuum_foundation::FieldSample;
 use continuum_foundation::Path;
 
 use serde::{Deserialize, Serialize};
-
-/// Double-buffered storage for signal values across ticks.
-///
-/// SignalStorage maintains two value maps: `current` (being resolved this tick)
-/// and `previous` (resolved last tick). This enables the `prev` keyword in DSL
-/// expressions to access last tick's values while computing new ones.
-///
-/// # Tick Lifecycle
-///
-/// 1. **Resolve phase**: Read from `previous` via `get_prev()`, write to `current` via `set_current()`
-/// 2. **Advance**: After tick completes, `current` becomes `previous` for next tick
-///
-/// # Gated Signals
-///
-/// When a stratum is gated (not executing), its signals are not resolved.
-/// `advance_tick()` copies forward any unresolved signals from `previous`
-/// to maintain state continuity.
-///
-/// # Example
-///
-/// ```
-/// use continuum_runtime::storage::SignalStorage;
-/// use continuum_runtime::{SignalId, Value};
-///
-/// let mut storage = SignalStorage::default();
-/// let temp: SignalId = "terra.temp".into();
-///
-/// // Initialize signal
-/// storage.init(temp.clone(), Value::Scalar(300.0));
-///
-/// // Resolve new value
-/// storage.set_current(temp.clone(), Value::Scalar(301.0));
-///
-/// // Current tick sees new value
-/// assert_eq!(storage.get(&temp), Some(&Value::Scalar(301.0)));
-///
-/// // Previous tick value still accessible
-/// assert_eq!(storage.get_prev(&temp), Some(&Value::Scalar(300.0)));
-///
-/// // Advance to next tick
-/// storage.advance_tick();
-///
-/// // Now 301.0 is the previous value
-/// assert_eq!(storage.get_prev(&temp), Some(&Value::Scalar(301.0)));
-/// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SignalStorage {
-    /// Values resolved in the current tick.
-    current: IndexMap<SignalId, Value>,
-    /// Values from the previous tick (for `prev` access).
-    previous: IndexMap<SignalId, Value>,
-}
-
-impl SignalStorage {
-    /// Initialize a signal with an initial value.
-    pub fn init(&mut self, id: SignalId, value: Value) {
-        self.previous.insert(id.clone(), value.clone());
-        self.current.insert(id, value);
-    }
-
-    /// Get the previous tick's value for a signal
-    pub fn get_prev(&self, id: &SignalId) -> Option<&Value> {
-        self.previous.get(id)
-    }
-
-    /// Get a resolved signal value (current tick if resolved, else previous)
-    /// Used during Resolve phase for intra-tick dependencies
-    pub fn get(&self, id: &SignalId) -> Option<&Value> {
-        self.current.get(id).or_else(|| self.previous.get(id))
-    }
-
-    /// Get the last fully resolved value (from previous tick)
-    /// Used for external access after a tick completes
-    pub fn get_resolved(&self, id: &SignalId) -> Option<&Value> {
-        self.previous.get(id)
-    }
-
-    /// Set the resolved value for the current tick
-    pub fn set_current(&mut self, id: SignalId, value: Value) {
-        self.current.insert(id, value);
-    }
-
-    /// Advance to next tick. Gated signals keep their previous values.
-    pub fn advance_tick(&mut self) {
-        // Copy forward any signals not resolved this tick (gated strata)
-        for (id, value) in &self.previous {
-            if !self.current.contains_key(id) {
-                self.current.insert(id.clone(), value.clone());
-            }
-        }
-        std::mem::swap(&mut self.previous, &mut self.current);
-        self.current.clear();
-    }
-
-    /// Get all signal IDs
-    pub fn signal_ids(&self) -> impl Iterator<Item = &SignalId> {
-        self.previous.keys()
-    }
-
-    /// Check if a signal has been initialized
-    pub fn has(&self, id: &SignalId) -> bool {
-        self.previous.contains_key(id) || self.current.contains_key(id)
-    }
-}
 
 // ============================================================================
 // Generic Input Channel Accumulator
@@ -731,22 +626,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_signal_storage_tick_advance() {
-        let mut storage = SignalStorage::default();
-        let id: SignalId = "test.signal".into();
-
-        storage.init(id.clone(), Value::Scalar(1.0));
-        assert_eq!(storage.get_prev(&id), Some(&Value::Scalar(1.0)));
-
-        storage.set_current(id.clone(), Value::Scalar(2.0));
-        assert_eq!(storage.get(&id), Some(&Value::Scalar(2.0)));
-        assert_eq!(storage.get_prev(&id), Some(&Value::Scalar(1.0)));
-
-        storage.advance_tick();
-        assert_eq!(storage.get_prev(&id), Some(&Value::Scalar(2.0)));
-    }
-
-    #[test]
     fn test_input_channels_accumulation() {
         let mut channels = InputChannels::default();
         let id: SignalId = "test.signal".into();
@@ -1092,32 +971,6 @@ mod tests {
         let mut channels2 = InputChannels::default();
         queue.drain_into(&mut channels2);
         assert_eq!(channels2.drain_sum(&signal_id), 0.0);
-    }
-
-    // ========================================================================
-    // Gated Signal Tests
-    // ========================================================================
-
-    #[test]
-    fn test_signal_storage_gated_signals_preserved() {
-        let mut storage = SignalStorage::default();
-        let fast_id: SignalId = "fast.signal".into();
-        let slow_id: SignalId = "slow.signal".into();
-
-        // Initialize both signals
-        storage.init(fast_id.clone(), Value::Scalar(1.0));
-        storage.init(slow_id.clone(), Value::Scalar(100.0));
-
-        // Only resolve the fast signal (slow is gated)
-        storage.set_current(fast_id.clone(), Value::Scalar(2.0));
-
-        // Advance tick
-        storage.advance_tick();
-
-        // Fast signal has new value
-        assert_eq!(storage.get_prev(&fast_id), Some(&Value::Scalar(2.0)));
-        // Slow signal preserved from previous tick
-        assert_eq!(storage.get_prev(&slow_id), Some(&Value::Scalar(100.0)));
     }
 
     // ========================================================================

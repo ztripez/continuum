@@ -48,7 +48,7 @@
 use rayon::prelude::*;
 
 use crate::soa_storage::MemberSignalBuffer;
-use crate::storage::{EntityStorage, SignalStorage};
+use crate::storage::EntityStorage;
 use crate::types::{Dt, Value};
 use crate::vectorized::EntityIndex;
 
@@ -75,8 +75,6 @@ pub struct MemberResolveContext<'a, T> {
     pub prev: T,
     /// Entity instance index
     pub index: EntityIndex,
-    /// Read-only access to global signals
-    pub signals: &'a SignalStorage,
     /// Read-only access to entity storage
     pub entities: &'a EntityStorage,
     /// Read-only access to member signal buffer (for cross-member reads)
@@ -277,7 +275,6 @@ where
 pub fn resolve_scalar_l1<F>(
     prev_values: &[f64],
     resolver: F,
-    signals: &SignalStorage,
     entities: &EntityStorage,
     members: &MemberSignalBuffer,
     dt: Dt,
@@ -293,7 +290,6 @@ where
             let ctx = MemberResolveContext {
                 prev,
                 index: EntityIndex(idx),
-                signals,
                 entities,
                 members,
                 dt,
@@ -313,7 +309,6 @@ where
 pub fn resolve_vec3_l1<F>(
     prev_values: &[[f64; 3]],
     resolver: F,
-    signals: &SignalStorage,
     entities: &EntityStorage,
     members: &MemberSignalBuffer,
     dt: Dt,
@@ -329,7 +324,6 @@ where
             let ctx = MemberResolveContext {
                 prev,
                 index: EntityIndex(idx),
-                signals,
                 entities,
                 members,
                 dt,
@@ -351,7 +345,6 @@ where
 pub fn resolve_member_signal_l1<F>(
     prev_values: &[Value],
     resolver: F,
-    signals: &SignalStorage,
     entities: &EntityStorage,
     members: &MemberSignalBuffer,
     dt: Dt,
@@ -367,7 +360,6 @@ where
             let ctx = MemberResolveContext {
                 prev: prev.clone(),
                 index: EntityIndex(idx),
-                signals,
                 entities,
                 members,
                 dt,
@@ -408,7 +400,6 @@ pub trait MemberSignalResolver: Send + Sync {
     fn resolve_all(
         &self,
         prev_values: &[Self::Value],
-        signals: &SignalStorage,
         entities: &EntityStorage,
         members: &MemberSignalBuffer,
         dt: Dt,
@@ -454,7 +445,6 @@ where
     fn resolve_all(
         &self,
         prev_values: &[f64],
-        signals: &SignalStorage,
         entities: &EntityStorage,
         members: &MemberSignalBuffer,
         dt: Dt,
@@ -467,7 +457,6 @@ where
         resolve_scalar_l1(
             prev_values,
             &self.resolver,
-            signals,
             entities,
             members,
             dt,
@@ -513,7 +502,6 @@ where
     fn resolve_all(
         &self,
         prev_values: &[[f64; 3]],
-        signals: &SignalStorage,
         entities: &EntityStorage,
         members: &MemberSignalBuffer,
         dt: Dt,
@@ -526,7 +514,6 @@ where
         resolve_vec3_l1(
             prev_values,
             &self.resolver,
-            signals,
             entities,
             members,
             dt,
@@ -544,10 +531,15 @@ where
 mod tests {
     use super::*;
 
-    fn create_test_signals() -> SignalStorage {
-        let mut storage = SignalStorage::default();
-        storage.init("test.signal".into(), Value::Scalar(42.0));
-        storage
+    fn create_test_globals() -> MemberSignalBuffer {
+        let mut buffer = MemberSignalBuffer::new();
+        buffer.register_root_entity();
+        buffer.register_global_signal("test.signal", crate::soa_storage::ValueType::scalar());
+        buffer.init_instances(1); // root entity needs at least 1 instance
+        buffer
+            .init_global("test.signal", Value::Scalar(42.0))
+            .unwrap();
+        buffer
     }
 
     fn create_test_members(count: usize) -> MemberSignalBuffer {
@@ -590,7 +582,6 @@ mod tests {
     #[test]
     fn test_resolve_scalar_l1_small() {
         let prev_values: Vec<f64> = (0..10).map(|i| i as f64).collect();
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(10);
         let config = ChunkConfig::default();
@@ -598,7 +589,6 @@ mod tests {
         let results = resolve_scalar_l1(
             &prev_values,
             |ctx| ctx.prev + 1.0,
-            &signals,
             &entities,
             &members,
             Dt(1.0),
@@ -616,7 +606,6 @@ mod tests {
     fn test_resolve_scalar_l1_large() {
         let population = 10_000;
         let prev_values: Vec<f64> = (0..population).map(|i| i as f64).collect();
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(population);
         let config = ChunkConfig::auto(population);
@@ -624,7 +613,6 @@ mod tests {
         let results = resolve_scalar_l1(
             &prev_values,
             |ctx| ctx.prev * 2.0,
-            &signals,
             &entities,
             &members,
             Dt(1.0),
@@ -642,7 +630,6 @@ mod tests {
     fn test_resolve_scalar_l1_deterministic() {
         let population = 1000;
         let prev_values: Vec<f64> = (0..population).map(|i| i as f64).collect();
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(population);
         let config = ChunkConfig::auto(population);
@@ -651,7 +638,6 @@ mod tests {
         let results1 = resolve_scalar_l1(
             &prev_values,
             |ctx| ctx.prev + ctx.index.0 as f64,
-            &signals,
             &entities,
             &members,
             Dt(1.0),
@@ -662,7 +648,6 @@ mod tests {
         let results2 = resolve_scalar_l1(
             &prev_values,
             |ctx| ctx.prev + ctx.index.0 as f64,
-            &signals,
             &entities,
             &members,
             Dt(1.0),
@@ -677,7 +662,6 @@ mod tests {
     fn test_resolve_scalar_l1_index_order() {
         let population = 500;
         let prev_values: Vec<f64> = vec![0.0; population];
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(population);
         let config = ChunkConfig::auto(population);
@@ -686,7 +670,6 @@ mod tests {
         let results = resolve_scalar_l1(
             &prev_values,
             |ctx| ctx.index.0 as f64,
-            &signals,
             &entities,
             &members,
             Dt(1.0),
@@ -704,7 +687,6 @@ mod tests {
     fn test_resolve_vec3_l1() {
         let population = 100;
         let prev_values: Vec<[f64; 3]> = (0..population).map(|i| [i as f64, 0.0, 0.0]).collect();
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(population);
         let config = ChunkConfig::auto(population);
@@ -712,7 +694,6 @@ mod tests {
         let results = resolve_vec3_l1(
             &prev_values,
             |ctx| [ctx.prev[0] + 1.0, ctx.prev[1] + 2.0, ctx.prev[2] + 3.0],
-            &signals,
             &entities,
             &members,
             Dt(1.0),
@@ -733,12 +714,10 @@ mod tests {
         let resolver = ScalarL1Resolver::new(|ctx: &ScalarResolveContext| ctx.prev + 1.0);
 
         let prev_values: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(5);
 
-        let results =
-            resolver.resolve_all(&prev_values, &signals, &entities, &members, Dt(1.0), 0.0);
+        let results = resolver.resolve_all(&prev_values, &entities, &members, Dt(1.0), 0.0);
 
         assert_eq!(results, vec![2.0, 3.0, 4.0, 5.0, 6.0]);
     }
@@ -749,22 +728,22 @@ mod tests {
             ScalarL1Resolver::new(|ctx: &ScalarResolveContext| ctx.prev + 10.0 * ctx.dt.seconds());
 
         let prev_values: Vec<f64> = vec![0.0, 0.0, 0.0];
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(3);
 
-        let results =
-            resolver.resolve_all(&prev_values, &signals, &entities, &members, Dt(0.5), 0.0);
+        let results = resolver.resolve_all(&prev_values, &entities, &members, Dt(0.5), 0.0);
 
         assert_eq!(results, vec![5.0, 5.0, 5.0]);
     }
 
     #[test]
-    fn test_resolve_with_signal_access() {
-        let mut signals = SignalStorage::default();
-        signals.init("multiplier".into(), Value::Scalar(3.0));
+    fn test_resolve_with_global_signal_access() {
+        let mut globals = create_test_globals();
+        globals.ensure_global_signal("multiplier", crate::soa_storage::ValueType::scalar());
+        globals
+            .init_global("multiplier", Value::Scalar(3.0))
+            .unwrap();
         let entities = EntityStorage::default();
-        let members = create_test_members(5);
 
         let prev_values: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let config = ChunkConfig::default();
@@ -773,15 +752,14 @@ mod tests {
             &prev_values,
             |ctx| {
                 let mult = ctx
-                    .signals
-                    .get(&"multiplier".into())
+                    .members
+                    .get_global_or_prev("multiplier")
                     .and_then(|v| v.as_scalar())
                     .unwrap_or(1.0);
                 ctx.prev * mult
             },
-            &signals,
             &entities,
-            &members,
+            &globals,
             Dt(1.0),
             0.0,
             config,
@@ -794,7 +772,6 @@ mod tests {
     fn test_generic_member_signal_l1() {
         let prev_values: Vec<Value> =
             vec![Value::Scalar(1.0), Value::Scalar(2.0), Value::Scalar(3.0)];
-        let signals = create_test_signals();
         let entities = EntityStorage::default();
         let members = create_test_members(3);
         let config = ChunkConfig::default();
@@ -805,7 +782,6 @@ mod tests {
                 Value::Scalar(v) => Value::Scalar(v + 10.0),
                 other => other.clone(),
             },
-            &signals,
             &entities,
             &members,
             Dt(1.0),

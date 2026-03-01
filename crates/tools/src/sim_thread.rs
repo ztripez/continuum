@@ -354,7 +354,7 @@ fn handle_sim_cmd(
         }
 
         SimCommand::GetSignal { id, reply } => {
-            let value = runtime.get_signal(&id).cloned();
+            let value = runtime.get_signal(&id);
             let _ = reply.send(value);
         }
 

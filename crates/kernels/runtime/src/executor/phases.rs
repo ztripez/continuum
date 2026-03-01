@@ -36,7 +36,7 @@ use tracing::{debug, instrument, trace};
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
 use crate::storage::{
-    EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage,
+    EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels,
 };
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
@@ -85,7 +85,6 @@ pub trait DynMemberResolver: Send + Sync {
     fn resolve_and_store(
         &self,
         full_signal: &str,
-        signals: &SignalStorage,
         entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         dt: Dt,
@@ -109,7 +108,6 @@ impl DynMemberResolver for ScalarMemberResolver {
     fn resolve_and_store(
         &self,
         full_signal: &str,
-        signals: &SignalStorage,
         entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         dt: Dt,
@@ -139,7 +137,6 @@ impl DynMemberResolver for ScalarMemberResolver {
         let values = resolve_scalar_l1(
             &prev,
             |ctx: &ScalarResolveContext| (self.resolver)(ctx),
-            signals,
             entities,
             member_signals,
             dt,
@@ -169,7 +166,6 @@ impl DynMemberResolver for Vec3MemberResolver {
     fn resolve_and_store(
         &self,
         full_signal: &str,
-        signals: &SignalStorage,
         entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         dt: Dt,
@@ -199,7 +195,6 @@ impl DynMemberResolver for Vec3MemberResolver {
         let values = resolve_vec3_l1(
             &prev,
             |ctx: &Vec3ResolveContext| (self.resolver)(ctx),
-            signals,
             entities,
             member_signals,
             dt,
@@ -438,7 +433,7 @@ impl PhaseExecutor {
         sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         entities: &EntityStorage,
         input_channels: &mut InputChannels,
         pending_impulses: &mut Vec<(usize, Value)>,
@@ -505,7 +500,6 @@ impl PhaseExecutor {
         sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
-        signals: &mut SignalStorage,
         entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
@@ -596,7 +590,6 @@ impl PhaseExecutor {
                     resolver
                         .resolve_and_store(
                             &full_signal,
-                            signals,
                             entities,
                             member_signals,
                             dt,
@@ -610,13 +603,13 @@ impl PhaseExecutor {
                     let results: Vec<Result<(SignalId, Value)>> = signal_tasks
                         .par_iter()
                         .map(|(signal, resolver_idx, inputs)| {
-                            let prev = signals
-                                .get_prev(signal)
+                            let prev = member_signals
+                                .get_global_prev(&signal.to_string())
                                 .ok_or_else(|| Error::SignalNotFound(signal.clone()))?;
                             let resolver = &self.resolvers[*resolver_idx];
                             let ctx = ResolveContext {
-                                prev,
-                                signals,
+                                prev: &prev,
+                                signals: member_signals,
                                 entities,
                                 inputs: *inputs,
                                 dt,
@@ -628,19 +621,24 @@ impl PhaseExecutor {
                         .collect();
 
                     for (signal, value) in results.into_iter().flatten() {
-                        let prev = signals.get_prev(&signal).unwrap_or(&value);
+                        let prev = member_signals.get_global_prev(&signal.to_string()).unwrap_or_else(|| value.clone());
                         assertion_checker.check_signal(
                             &signal,
                             &value,
-                            prev,
-                            signals,
+                            &prev,
+                            member_signals,
                             entities,
                             dt,
                             sim_time,
                             tick,
                             &era.to_string(),
                         )?;
-                        signals.set_current(signal, value);
+                        member_signals
+                            .set_global(&signal.to_string(), value)
+                            .map_err(|e| Error::Generic(format!(
+                                "failed to set global signal '{}': {}",
+                                signal, e
+                            )))?;
                     }
                 }
 
@@ -651,7 +649,7 @@ impl PhaseExecutor {
                         .map(|(signal, aggregate_idx)| {
                             if let Some(resolver) = self.aggregate_resolvers.get(*aggregate_idx) {
                                 let value =
-                                    resolver(signals, entities, member_signals, dt, sim_time);
+                                    resolver(member_signals, entities, member_signals, dt, sim_time);
                                 Ok((signal.clone(), value))
                             } else {
                                 Err(Error::Generic(format!(
@@ -663,7 +661,12 @@ impl PhaseExecutor {
                         .collect::<Vec<_>>();
 
                     for (signal, value) in results.into_iter().flatten() {
-                        signals.set_current(signal, value);
+                        member_signals
+                            .set_global(&signal.to_string(), value)
+                            .map_err(|e| Error::Generic(format!(
+                                "failed to set global signal: {}",
+                                e
+                            )))?;
                     }
                 }
             }
@@ -684,7 +687,7 @@ impl PhaseExecutor {
         dt: Dt,
         sim_time: f64,
         dags: &DagSet,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         entities: &EntityStorage,
         fracture_queue: &mut FractureQueue,
     ) -> Result<()> {
@@ -786,7 +789,7 @@ impl PhaseExecutor {
         sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         entities: &EntityStorage,
         field_buffer: &mut FieldBuffer,
     ) -> Result<()> {
@@ -894,7 +897,7 @@ impl PhaseExecutor {
         sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         entities: &EntityStorage,
         event_buffer: &mut EventBuffer,
     ) -> Result<()> {

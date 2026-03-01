@@ -35,8 +35,7 @@ use indexmap::IndexMap;
 use rayon::prelude::*;
 use tracing::{debug, instrument, trace};
 
-use crate::soa_storage::PopulationStorage;
-use crate::storage::SignalStorage;
+use crate::soa_storage::{MemberSignalBuffer, PopulationStorage};
 use crate::types::Dt;
 use crate::vectorized::{EntityIndex, MemberSignalId};
 
@@ -264,8 +263,8 @@ pub struct L3ResolveContext<'a, T> {
     pub prev: T,
     /// Entity instance index
     pub index: EntityIndex,
-    /// Read-only access to global signals
-    pub signals: &'a SignalStorage,
+    /// Read-only access to global signals (via `MemberSignalBuffer`)
+    pub signals: &'a MemberSignalBuffer,
     /// Already-resolved member values for this entity (current tick)
     /// Maps member signal name to its current value
     pub resolved_members: &'a IndexMap<String, f64>,
@@ -298,7 +297,7 @@ pub trait L3MemberResolver: Send + Sync {
         &self,
         prev: Self::Value,
         index: EntityIndex,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         resolved_scalars: &IndexMap<String, f64>,
         resolved_vec3s: &IndexMap<String, [f64; 3]>,
         dt: Dt,
@@ -335,7 +334,7 @@ impl L3MemberResolver for ScalarL3MemberResolver {
         &self,
         prev: f64,
         index: EntityIndex,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         resolved_scalars: &IndexMap<String, f64>,
         resolved_vec3s: &IndexMap<String, [f64; 3]>,
         dt: Dt,
@@ -383,7 +382,7 @@ impl L3MemberResolver for Vec3L3MemberResolver {
         &self,
         prev: [f64; 3],
         index: EntityIndex,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         resolved_scalars: &IndexMap<String, f64>,
         resolved_vec3s: &IndexMap<String, [f64; 3]>,
         dt: Dt,
@@ -472,7 +471,7 @@ impl L3Kernel {
     fn resolve_entity(
         &self,
         entity_idx: usize,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         population: &PopulationStorage,
         dt: Dt,
     ) -> Result<EntityResolveResult, LaneKernelError> {
@@ -543,7 +542,7 @@ impl L3Kernel {
     /// Execute sequentially (pure L3).
     fn execute_sequential(
         &self,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         _entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
@@ -568,7 +567,7 @@ impl L3Kernel {
     /// Execute with hybrid L1+L3 (parallel over entities, L3 per entity).
     fn execute_hybrid(
         &self,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         _entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
@@ -651,7 +650,7 @@ impl LaneKernel for L3Kernel {
     ))]
     fn execute(
         &self,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         _entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
@@ -994,7 +993,7 @@ mod tests {
         population.advance_tick();
 
         // Execute
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
             .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)
@@ -1073,7 +1072,7 @@ mod tests {
         population.advance_tick();
 
         // Execute
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
             .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)
@@ -1162,7 +1161,7 @@ mod tests {
 
         let mut pop1 = setup_population();
         let mut pop2 = setup_population();
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = crate::storage::EntityStorage::default();
 
         kernel1

@@ -95,7 +95,6 @@ impl Runtime {
                 world_git_hash: None,
             },
             state: crate::checkpoint::CheckpointState {
-                signals: self.storage.signals.clone(),
                 entities: self.storage.entities.clone(),
                 member_signals,
                 era_configs,
@@ -172,7 +171,6 @@ impl Runtime {
                 world_git_hash: None,
             },
             state: crate::checkpoint::CheckpointState {
-                signals: self.storage.signals.clone(),
                 entities: self.storage.entities.clone(),
                 member_signals,
                 era_configs,
@@ -212,7 +210,6 @@ impl Runtime {
                 }
 
         // Restore state
-        self.storage.signals = checkpoint.state.signals;
         self.storage.entities = checkpoint.state.entities;
 
         // Restore member signals
@@ -258,9 +255,6 @@ impl Runtime {
         self.tick = checkpoint.header.tick;
         self.sim_time = checkpoint.header.sim_time;
         self.current_era = checkpoint.header.current_era.clone();
-
-        // Restore signal storage
-        self.storage.signals = checkpoint.state.signals;
 
         // Restore entity storage
         self.storage.entities = checkpoint.state.entities;

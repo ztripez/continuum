@@ -54,7 +54,7 @@ use std::hash::Hash;
 use indexmap::IndexMap;
 
 use crate::soa_storage::{MemberSignalBuffer, ValueType};
-use crate::storage::{FieldBuffer, FieldSample, SignalStorage};
+use crate::storage::{FieldBuffer, FieldSample};
 use crate::types::{EntityId, FieldId, FractureId, SignalId, Value};
 
 // Re-export MemberSignalId from foundation
@@ -176,7 +176,7 @@ pub trait VectorizedPrimitive: Debug {
 ///
 /// # Storage
 ///
-/// Global signals use the standard double-buffered `SignalStorage`.
+/// Global signals are stored in `MemberSignalBuffer` as the root entity's signals.
 #[derive(Debug, Clone)]
 pub struct GlobalSignal {
     /// The signal's unique identifier
@@ -202,18 +202,24 @@ impl GlobalSignal {
     }
 
     /// Get the current value from storage.
-    pub fn get_current<'a>(&self, storage: &'a SignalStorage) -> Option<&'a Value> {
-        storage.get(&self.id)
+    pub fn get_current(&self, storage: &MemberSignalBuffer) -> Option<Value> {
+        storage.get_global(&self.id.to_string())
     }
 
     /// Get the previous tick's value from storage.
-    pub fn get_previous<'a>(&self, storage: &'a SignalStorage) -> Option<&'a Value> {
-        storage.get_prev(&self.id)
+    pub fn get_previous(&self, storage: &MemberSignalBuffer) -> Option<Value> {
+        storage.get_global_prev(&self.id.to_string())
     }
 
     /// Set the current value in storage.
-    pub fn set_current(&self, storage: &mut SignalStorage, value: Value) {
-        storage.set_current(self.id.clone(), value);
+    ///
+    /// # Panics
+    ///
+    /// Panics if the signal is not registered or storage is not initialized.
+    pub fn set_current(&self, storage: &mut MemberSignalBuffer, value: Value) {
+        storage
+            .set_global(&self.id.to_string(), value)
+            .unwrap_or_else(|e| panic!("failed to set global signal '{}': {}", self.id, e));
     }
 }
 

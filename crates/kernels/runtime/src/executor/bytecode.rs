@@ -14,9 +14,7 @@ use crate::error::{Error, Result};
 use crate::executor::assertions::AssertionChecker;
 use crate::executor::bytecode_vm::{EntityContext, VMContext};
 use crate::soa_storage::MemberSignalBuffer;
-use crate::storage::{
-    EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage,
-};
+use crate::storage::{EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels};
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 use continuum_cdsl::foundation::Type;
 use continuum_foundation::Path;
@@ -196,7 +194,6 @@ impl BytecodePhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         compiled_blocks: &[CompiledBlock],
-        signals: &mut SignalStorage,
         entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
@@ -245,7 +242,6 @@ impl BytecodePhaseExecutor {
                                 era,
                                 dt,
                                 sim_time,
-                                signals,
                                 entities,
                                 member_signals,
                                 input_channels,
@@ -338,7 +334,6 @@ impl BytecodePhaseExecutor {
                                     era,
                                     dt,
                                     sim_time,
-                                    signals,
                                     entities,
                                     member_signals,
                                     input_channels,
@@ -393,10 +388,14 @@ impl BytecodePhaseExecutor {
                     }
                 }
 
-                // Commit results to signal storage (sets current AND prev)
-                // Using init() to set both previous and current for first-time initialization
+                // Commit results to global signal storage (sets current AND prev)
+                // Using init_global() to set both previous and current for first-time initialization
                 for (signal, value) in level_results {
-                    signals.init(signal, value);
+                    member_signals
+                        .init_global(&signal.to_string(), value)
+                        .map_err(|e| Error::ExecutionFailure {
+                            message: format!("failed to init global signal '{}': {}", signal, e),
+                        })?;
                 }
             }
         }
@@ -416,7 +415,6 @@ impl BytecodePhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         compiled_blocks: &[CompiledBlock],
-        signals: &SignalStorage,
         entities: &EntityStorage,
         member_signals: &MemberSignalBuffer,
         input_channels: &mut InputChannels,
@@ -456,7 +454,6 @@ impl BytecodePhaseExecutor {
                             era,
                             dt,
                             sim_time,
-                            signals,
                             entities,
                             member_signals,
                             input_channels,
@@ -505,7 +502,6 @@ impl BytecodePhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         compiled_blocks: &[CompiledBlock],
-        signals: &mut SignalStorage,
         entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
@@ -556,7 +552,6 @@ impl BytecodePhaseExecutor {
                                 era,
                                 dt,
                                 sim_time,
-                                signals,
                                 entities,
                                 member_signals,
                                 input_channels,
@@ -652,7 +647,6 @@ impl BytecodePhaseExecutor {
                                     era,
                                     dt,
                                     sim_time,
-                                    signals,
                                     entities,
                                     member_signals,
                                     input_channels,
@@ -714,22 +708,25 @@ impl BytecodePhaseExecutor {
                         return Ok(Some(signal));
                     }
 
-                    let prev = signals
-                        .get_prev(&signal)
+                    let prev = member_signals
+                        .get_global_prev(&signal.to_string())
                         .ok_or_else(|| Error::ExecutionFailure {
                             message: format!(
                                 "Signal '{}' has no previous value for history read",
                                 signal
                             ),
-                        })?
-                        .clone();
-                    signals.set_current(signal.clone(), value.clone());
+                        })?;
+                    member_signals
+                        .set_global(&signal.to_string(), value.clone())
+                        .map_err(|e| Error::ExecutionFailure {
+                            message: format!("failed to set global signal '{}': {}", signal, e),
+                        })?;
 
                     assertion_checker.check_signal(
                         &signal,
                         &value,
                         &prev,
-                        signals,
+                        member_signals,
                         entities,
                         dt,
                         sim_time,
@@ -754,7 +751,6 @@ impl BytecodePhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         compiled_blocks: &[CompiledBlock],
-        signals: &SignalStorage,
         entities: &mut EntityStorage,
         member_signals: &MemberSignalBuffer,
         fracture_queue: &mut FractureQueue,
@@ -794,7 +790,6 @@ impl BytecodePhaseExecutor {
                             era,
                             dt,
                             sim_time,
-                            signals,
                             entities,
                             member_signals,
                             &mut placeholder_input_channels,
@@ -830,7 +825,6 @@ impl BytecodePhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         compiled_blocks: &[CompiledBlock],
-        signals: &SignalStorage,
         entities: &EntityStorage,
         member_signals: &MemberSignalBuffer,
         field_buffer: &mut FieldBuffer,
@@ -874,7 +868,6 @@ impl BytecodePhaseExecutor {
                                 era,
                                 dt,
                                 sim_time,
-                                signals,
                                 entities,
                                 member_signals,
                                 &mut inner_input_channels,
@@ -924,7 +917,6 @@ impl BytecodePhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         compiled_blocks: &[CompiledBlock],
-        signals: &SignalStorage,
         entities: &EntityStorage,
         member_signals: &MemberSignalBuffer,
         event_buffer: &mut EventBuffer,
@@ -967,7 +959,6 @@ impl BytecodePhaseExecutor {
                                 era,
                                 dt,
                                 sim_time,
-                                signals,
                                 entities,
                                 member_signals,
                                 &mut input_channels,

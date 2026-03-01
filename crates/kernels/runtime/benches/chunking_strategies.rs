@@ -6,20 +6,14 @@
 
 use std::hint::black_box;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 use continuum_runtime::executor::member_executor::{
-    ChunkConfig, MemberResolveContext, resolve_scalar_l1,
+    resolve_scalar_l1, ChunkConfig, MemberResolveContext,
 };
 use continuum_runtime::soa_storage::MemberSignalBuffer;
-use continuum_runtime::storage::{EntityStorage, SignalStorage};
-use continuum_runtime::types::{Dt, Value};
-
-fn create_test_signals() -> SignalStorage {
-    let mut storage = SignalStorage::default();
-    storage.init("test.signal".into(), Value::Scalar(1.0));
-    storage
-}
+use continuum_runtime::storage::EntityStorage;
+use continuum_runtime::types::Dt;
 
 fn create_test_members(count: usize) -> MemberSignalBuffer {
     let mut buffer = MemberSignalBuffer::new();
@@ -49,7 +43,6 @@ fn bench_chunk_sizes(c: &mut Criterion) {
 
     let population = 10_000;
     let prev_values: Vec<f64> = (0..population).map(|i| i as f64 * 0.1).collect();
-    let signals = create_test_signals();
     let members = create_test_members(population);
     let entities = EntityStorage::default();
     let dt = Dt(0.016); // ~60fps
@@ -74,7 +67,6 @@ fn bench_chunk_sizes(c: &mut Criterion) {
                         |ctx: &MemberResolveContext<'_, f64>| {
                             ctx.prev + ctx.dt.seconds() + (ctx.index.0 as f64 * 0.001)
                         },
-                        black_box(&signals),
                         black_box(&entities),
                         black_box(&members),
                         dt,
@@ -95,7 +87,6 @@ fn bench_chunk_sizes(c: &mut Criterion) {
                 |ctx: &MemberResolveContext<'_, f64>| {
                     ctx.prev + ctx.dt.seconds() + (ctx.index.0 as f64 * 0.001)
                 },
-                black_box(&signals),
                 black_box(&entities),
                 black_box(&members),
                 dt,
@@ -116,7 +107,6 @@ fn bench_parallel_speedup(c: &mut Criterion) {
 
     for population in [1_000, 5_000, 10_000, 50_000, 100_000] {
         let prev_values: Vec<f64> = (0..population).map(|i| i as f64 * 0.1).collect();
-        let signals = create_test_signals();
         let members = create_test_members(population);
         let entities = EntityStorage::default();
 
@@ -141,7 +131,6 @@ fn bench_parallel_speedup(c: &mut Criterion) {
                         |ctx: &MemberResolveContext<'_, f64>| {
                             ctx.prev + ctx.dt.seconds() + (ctx.index.0 as f64 * 0.001)
                         },
-                        black_box(&signals),
                         black_box(&entities),
                         black_box(&members),
                         dt,
@@ -162,7 +151,6 @@ fn bench_compute_heavy_resolver(c: &mut Criterion) {
 
     let population = 10_000;
     let prev_values: Vec<f64> = (0..population).map(|i| i as f64 * 0.1).collect();
-    let signals = create_test_signals();
     let members = create_test_members(population);
     let entities = EntityStorage::default();
     let dt = Dt(0.016);
@@ -181,7 +169,6 @@ fn bench_compute_heavy_resolver(c: &mut Criterion) {
                         + ctx.dt.seconds() * 2.0
                         + (ctx.index.0 as f64 * 0.001).sin().abs()
                 },
-                black_box(&signals),
                 black_box(&entities),
                 black_box(&members),
                 dt,

@@ -32,7 +32,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
 use crate::error::{Error, Result};
-use crate::storage::{EntityStorage, SignalStorage};
+use crate::soa_storage::MemberSignalBuffer;
+use crate::storage::EntityStorage;
 use crate::types::{AssertionSeverity, Dt, FaultPolicy, SignalId, Value};
 
 use super::context::AssertContext;
@@ -131,7 +132,7 @@ impl AssertionChecker {
         signal: &SignalId,
         current: &Value,
         prev: &Value,
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         entities: &EntityStorage,
         dt: Dt,
         sim_time: f64,
@@ -216,7 +217,7 @@ impl AssertionChecker {
     pub fn check_all(
         &mut self,
         resolved_signals: &[(SignalId, Value)],
-        signals: &SignalStorage,
+        signals: &MemberSignalBuffer,
         entities: &EntityStorage,
         dt: Dt,
         sim_time: f64,
@@ -224,7 +225,10 @@ impl AssertionChecker {
         era: &str,
     ) -> Result<()> {
         for (signal, current) in resolved_signals {
-            let prev = signals.get_prev(signal).unwrap_or(current);
+            let prev_val = signals
+                .get_global_prev(&signal.to_string())
+                .unwrap_or_else(|| current.clone());
+            let prev = &prev_val;
             self.check_signal(
                 signal, current, prev, signals, entities, dt, sim_time, tick, era,
             )?;
@@ -288,7 +292,7 @@ mod tests {
             Some("value must be positive".to_string()),
         );
 
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = EntityStorage::default();
         let current = Value::Scalar(10.0);
         let prev = Value::Scalar(5.0);
@@ -321,7 +325,7 @@ mod tests {
             Some("value must be positive".to_string()),
         );
 
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = EntityStorage::default();
         let current = Value::Scalar(-5.0);
         let prev = Value::Scalar(5.0);
@@ -353,7 +357,7 @@ mod tests {
             Some("value exceeds recommended maximum".to_string()),
         );
 
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = EntityStorage::default();
         let current = Value::Scalar(150.0); // Exceeds 100
         let prev = Value::Scalar(50.0);

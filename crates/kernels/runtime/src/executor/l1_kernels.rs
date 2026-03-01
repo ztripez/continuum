@@ -15,7 +15,6 @@ use std::sync::Arc;
 use tracing::{debug, instrument, trace};
 
 use crate::soa_storage::{MemberSignalBuffer, PopulationStorage};
-use crate::storage::SignalStorage;
 use crate::types::Dt;
 use crate::vectorized::{EntityIndex, MemberSignalId};
 
@@ -225,7 +224,7 @@ impl<T: L1KernelValue> LaneKernel for L1Kernel<T> {
     ))]
     fn execute(
         &self,
-        signals: &SignalStorage,
+        _signals: &MemberSignalBuffer,
         entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
@@ -257,7 +256,6 @@ impl<T: L1KernelValue> LaneKernel for L1Kernel<T> {
                 let ctx = MemberResolveContext {
                     prev,
                     index: EntityIndex(idx),
-                    signals,
                     entities,
                     members: member_signals,
                     dt,
@@ -302,7 +300,6 @@ pub use super::member_executor::{ScalarResolveContext, Vec3ResolveContext};
 mod tests {
     use super::*;
     use crate::soa_storage::ValueType;
-    use crate::storage::SignalStorage;
     use crate::types::EntityId;
 
     fn make_member_signal_id(entity: &str, signal: &str) -> MemberSignalId {
@@ -348,7 +345,7 @@ mod tests {
         let kernel = L1Kernel::<f64>::new(id, Arc::new(|ctx| ctx.prev + 1.0), 10);
 
         // Execute
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
             .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)
@@ -402,7 +399,7 @@ mod tests {
         );
 
         // Execute
-        let signals = SignalStorage::default();
+        let signals = MemberSignalBuffer::new();
         let entities = crate::storage::EntityStorage::default();
         let result = kernel
             .execute(&signals, &entities, &mut population, Dt(1.0), 0.0)

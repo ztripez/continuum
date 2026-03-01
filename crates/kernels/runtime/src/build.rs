@@ -475,40 +475,30 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
             continue;
         };
 
-        use continuum_kernel_types::Shape;
-        let value_type = match output_type {
-            Type::Kernel(kt) => match &kt.shape {
-                Shape::Scalar => ValueType::scalar(),
-                Shape::Vector { dim: 2 } => ValueType::vec2(),
-                Shape::Vector { dim: 3 } => ValueType::vec3(),
-                Shape::Vector { dim: 4 } => ValueType::vec4(),
-                Shape::Vector { dim } => {
-                    panic!(
-                        "Unsupported vector dimension {} for member signal {}",
-                        dim, path
-                    )
-                }
-                _ => panic!(
-                    "Unsupported shape {:?} for member signal {}",
-                    kt.shape, path
-                ),
-            },
-            Type::Bool => ValueType::boolean(),
-            Type::String => panic!("String member signals not yet supported: {}", path),
-            _ => panic!(
-                "Unsupported type {:?} for member signal {}",
-                output_type, path
-            ),
-        };
-
+        let value_type = output_type_to_value_type(output_type, &path.to_string());
         runtime.register_member_signal(&path.to_string(), value_type);
     }
 
-    // Initialize member signal storage with the maximum entity count
-    // This must happen AFTER registering all signals
-    if max_entity_count > 0 {
-        runtime.init_member_instances(max_entity_count);
+    // Register the root entity and global signals in the member signal buffer.
+    // Global signals are stored as instance-0 of the root entity.
+    runtime.register_root_entity();
+    for (path, node) in compiled
+        .world
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.entity.is_none())
+    {
+        let Some(output_type) = node.output.as_ref() else {
+            continue;
+        };
+
+        let value_type = output_type_to_value_type(output_type, &path.to_string());
+        runtime.register_global_signal(&path.to_string(), value_type);
     }
+
+    // Initialize member signal storage with the maximum entity count.
+    // Always allocate at least 1 instance for the root entity (global signals).
+    runtime.init_member_instances(max_entity_count.max(1));
 
     // Populate config/const in bytecode executor
     runtime.set_config_values(config_values);
@@ -558,6 +548,29 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     }
 
     runtime
+}
+
+/// Convert an output `Type` to a `ValueType` for signal storage registration.
+///
+/// Panics if the type is not supported for signal storage (e.g., String, unsupported
+/// matrix dimensions).
+fn output_type_to_value_type(output_type: &Type, path: &str) -> ValueType {
+    use continuum_kernel_types::Shape;
+    match output_type {
+        Type::Kernel(kt) => match &kt.shape {
+            Shape::Scalar => ValueType::scalar(),
+            Shape::Vector { dim: 2 } => ValueType::vec2(),
+            Shape::Vector { dim: 3 } => ValueType::vec3(),
+            Shape::Vector { dim: 4 } => ValueType::vec4(),
+            Shape::Vector { dim } => {
+                panic!("Unsupported vector dimension {} for signal {}", dim, path)
+            }
+            _ => panic!("Unsupported shape {:?} for signal {}", kt.shape, path),
+        },
+        Type::Bool => ValueType::boolean(),
+        Type::String => panic!("String signals not yet supported: {}", path),
+        _ => panic!("Unsupported type {:?} for signal {}", output_type, path),
+    }
 }
 
 fn compile_bytecode_and_dags(
