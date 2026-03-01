@@ -789,6 +789,15 @@ impl<T: Copy + Default> DoubleBuffer<T> {
         self.current.set(idx, value);
     }
 
+    /// Set previous value for (signal, instance).
+    ///
+    /// Used by `init_global` to set both current and previous buffers
+    /// when initializing a signal for the first time.
+    fn set_previous(&mut self, signal_idx: usize, instance_idx: usize, value: T) {
+        let idx = self.index(signal_idx, instance_idx);
+        self.previous.set(idx, value);
+    }
+
     /// Advance tick: current becomes previous, current cleared.
     fn advance_tick(&mut self) {
         std::mem::swap(&mut self.current, &mut self.previous);
@@ -1366,6 +1375,169 @@ impl MemberSignalBuffer {
         self.booleans.advance_tick();
         self.integers.advance_tick();
     }
+
+    // ========================================================================
+    // Global signal API (instance_count=1, instance_idx=0)
+    // ========================================================================
+    //
+    // Global signals are stored in the same SoA buffers as entity member signals.
+    // They are registered with their entity set to the root entity ("__root")
+    // which has instance_count=1. Access uses instance_idx=0 always.
+
+    /// Name of the synthetic root entity that holds global signals.
+    pub const ROOT_ENTITY: &'static str = "__root";
+
+    /// Register a global signal (root entity, instance_count=1).
+    ///
+    /// Must be called before `init_instances`. The signal is stored
+    /// alongside member signals in the same SoA buffers.
+    pub fn register_global_signal(&mut self, name: &str, value_type: ValueType) {
+        self.registry.register(name.to_string(), value_type);
+    }
+
+    /// Ensure the root entity is registered with instance_count=1.
+    ///
+    /// Idempotent — safe to call multiple times.
+    pub fn register_root_entity(&mut self) {
+        if !self.entity_instance_counts.contains_key(Self::ROOT_ENTITY) {
+            self.entity_instance_counts
+                .insert(Self::ROOT_ENTITY.to_string(), 1);
+        }
+    }
+
+    /// Initialize a global signal: set both current and previous to the given value.
+    ///
+    /// Equivalent to the old `SignalStorage::init()` — ensures the signal has a value
+    /// in both tick buffers from the start.
+    pub fn init_global(&mut self, signal: &str, value: Value) -> Result<(), String> {
+        // Set current
+        self.set_current(signal, 0, value.clone())?;
+        // Also copy into previous buffer for `prev` access on tick 0
+        self.set_previous_value(signal, 0, value)?;
+        Ok(())
+    }
+
+    /// Get the current value of a global signal.
+    pub fn get_global(&self, signal: &str) -> Option<Value> {
+        self.get_current(signal, 0)
+    }
+
+    /// Get the previous tick's value of a global signal.
+    pub fn get_global_prev(&self, signal: &str) -> Option<Value> {
+        self.get_previous(signal, 0)
+    }
+
+    /// Get the current value of a global signal, falling back to previous if not yet resolved.
+    ///
+    /// Equivalent to `SignalStorage::get()` — used during Resolve phase for
+    /// intra-tick dependencies.
+    pub fn get_global_or_prev(&self, signal: &str) -> Option<Value> {
+        self.get_current(signal, 0)
+            .or_else(|| self.get_previous(signal, 0))
+    }
+
+    /// Set the current tick's value for a global signal.
+    pub fn set_global(&mut self, signal: &str, value: Value) -> Result<(), String> {
+        self.set_current(signal, 0, value)
+    }
+
+    /// Check if a global signal is registered.
+    pub fn has_global(&self, signal: &str) -> bool {
+        self.registry.get(signal).is_some()
+    }
+
+    /// Get all global signal names (signals belonging to the root entity).
+    pub fn global_signal_names(&self) -> Vec<&String> {
+        self.registry
+            .iter()
+            .filter_map(|(name, _)| {
+                if self.entity_id_from_signal(name).as_deref() == Some(Self::ROOT_ENTITY) {
+                    Some(name)
+                } else if self.entity_id_from_signal(name).is_none() {
+                    // Signals without a dot-separated entity prefix are also globals
+                    // (e.g., "counter" as opposed to "terra.plate.age")
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Set the previous tick's value for a signal at a specific instance.
+    ///
+    /// Used by `init_global()` to set both current and previous buffers
+    /// when initializing a signal for the first time, and by checkpoint
+    /// restore to reconstruct previous-tick state.
+    pub fn set_previous_value(
+        &mut self,
+        signal: &str,
+        instance_idx: usize,
+        value: Value,
+    ) -> Result<(), String> {
+        let Some(meta) = self.registry.get(signal).cloned() else {
+            return Err(format!("Unknown signal: {}", signal));
+        };
+
+        match (meta.value_type.buffer_class(), value) {
+            (MemberBufferClass::Scalar, Value::Scalar(v)) => {
+                self.scalars
+                    .set_previous(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (MemberBufferClass::Vec2, Value::Vec2(v)) => {
+                self.vec2s
+                    .set_previous(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (MemberBufferClass::Vec3, Value::Vec3(v)) => {
+                self.vec3s
+                    .set_previous(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (MemberBufferClass::Vec4, value) => match (meta.value_type, value) {
+                (vt, Value::Vec4(v)) if vt.is_vec4() => {
+                    self.vec4s
+                        .set_previous(meta.buffer_index, instance_idx, v);
+                    Ok(())
+                }
+                (vt, Value::Quat(v)) if vt.is_quat() => {
+                    self.vec4s
+                        .set_previous(meta.buffer_index, instance_idx, v.0);
+                    Ok(())
+                }
+                (_, value) => Err(format!(
+                    "Type mismatch for signal {} previous: expected {:?}, got {:?}",
+                    signal, meta.value_type, value
+                )),
+            },
+            (MemberBufferClass::Boolean, Value::Boolean(v)) => {
+                self.booleans
+                    .set_previous(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (MemberBufferClass::Integer, Value::Integer(v)) => {
+                self.integers
+                    .set_previous(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (_, value) => Err(format!(
+                "Type mismatch for signal {} previous: expected {:?}, got {:?}",
+                signal, meta.value_type, value
+            )),
+        }
+    }
+
+    // Note on gated signal preservation for globals:
+    // Global signals that were not resolved this tick (gated strata) need their
+    // values carried forward. The existing `advance_tick()` above handles this
+    // correctly because `DoubleBuffer::advance_tick()` swaps and then copies
+    // previous into current, preserving values for gated signals.
+
+    /// Get all signal names (both global and member).
+    pub fn all_signal_names(&self) -> impl Iterator<Item = &String> {
+        self.registry.iter().map(|(name, _)| name)
+    }
 }
 
 impl Default for MemberSignalBuffer {
@@ -1487,5 +1659,157 @@ impl PopulationStorage {
     /// Advance tick.
     pub fn advance_tick(&mut self) {
         self.signals.advance_tick();
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: create a MemberSignalBuffer with global signals registered and initialized.
+    fn make_global_buffer() -> MemberSignalBuffer {
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_root_entity();
+        buf.register_global_signal("counter", ValueType::scalar());
+        buf.register_global_signal("velocity", ValueType::vec3());
+        // Use instance_count=1 for root entity (globals)
+        buf.init_instances(1);
+        buf
+    }
+
+    #[test]
+    fn test_global_signal_init_and_read() {
+        let mut buf = make_global_buffer();
+
+        buf.init_global("counter", Value::Scalar(42.0))
+            .expect("init_global should succeed");
+
+        // Both current and previous should have the value
+        assert_eq!(buf.get_global("counter"), Some(Value::Scalar(42.0)));
+        assert_eq!(buf.get_global_prev("counter"), Some(Value::Scalar(42.0)));
+    }
+
+    #[test]
+    fn test_global_signal_set_and_advance() {
+        let mut buf = make_global_buffer();
+
+        buf.init_global("counter", Value::Scalar(1.0))
+            .expect("init");
+
+        // Set new value in current tick
+        buf.set_global("counter", Value::Scalar(2.0))
+            .expect("set_global");
+
+        // Current = 2.0, previous = 1.0
+        assert_eq!(buf.get_global("counter"), Some(Value::Scalar(2.0)));
+        assert_eq!(buf.get_global_prev("counter"), Some(Value::Scalar(1.0)));
+
+        // Advance tick
+        buf.advance_tick();
+
+        // After advance, previous = 2.0 (was current), current = 2.0 (copied from prev)
+        assert_eq!(buf.get_global_prev("counter"), Some(Value::Scalar(2.0)));
+        assert_eq!(buf.get_global("counter"), Some(Value::Scalar(2.0)));
+    }
+
+    #[test]
+    fn test_global_signal_or_prev_fallback() {
+        let mut buf = make_global_buffer();
+
+        buf.init_global("counter", Value::Scalar(10.0))
+            .expect("init");
+
+        // get_global_or_prev returns current when available
+        assert_eq!(
+            buf.get_global_or_prev("counter"),
+            Some(Value::Scalar(10.0))
+        );
+    }
+
+    #[test]
+    fn test_global_signal_has() {
+        let buf = make_global_buffer();
+        assert!(buf.has_global("counter"));
+        assert!(!buf.has_global("nonexistent"));
+    }
+
+    #[test]
+    fn test_global_signal_vec3() {
+        let mut buf = make_global_buffer();
+
+        buf.init_global("velocity", Value::Vec3([1.0, 2.0, 3.0]))
+            .expect("init vec3");
+
+        assert_eq!(
+            buf.get_global("velocity"),
+            Some(Value::Vec3([1.0, 2.0, 3.0]))
+        );
+
+        buf.set_global("velocity", Value::Vec3([4.0, 5.0, 6.0]))
+            .expect("set vec3");
+
+        assert_eq!(
+            buf.get_global("velocity"),
+            Some(Value::Vec3([4.0, 5.0, 6.0]))
+        );
+        assert_eq!(
+            buf.get_global_prev("velocity"),
+            Some(Value::Vec3([1.0, 2.0, 3.0]))
+        );
+    }
+
+    #[test]
+    fn test_global_and_member_coexistence() {
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_root_entity();
+        // Global scalar
+        buf.register_global_signal("global.temp", ValueType::scalar());
+        // Member scalar (entity signal)
+        buf.register_signal("terra.plate.age".to_string(), ValueType::scalar());
+        buf.register_entity_count("terra.plate", 4);
+        // Init with max instance count
+        buf.init_instances(4);
+
+        // Init global
+        buf.init_global("global.temp", Value::Scalar(300.0))
+            .expect("init global");
+
+        // Init member for each instance
+        for i in 0..4 {
+            buf.set_current("terra.plate.age", i, Value::Scalar(i as f64 * 100.0))
+                .expect("set member");
+        }
+
+        // Global should be readable
+        assert_eq!(buf.get_global("global.temp"), Some(Value::Scalar(300.0)));
+
+        // Members should be readable
+        assert_eq!(
+            buf.get_current("terra.plate.age", 0),
+            Some(Value::Scalar(0.0))
+        );
+        assert_eq!(
+            buf.get_current("terra.plate.age", 3),
+            Some(Value::Scalar(300.0))
+        );
+    }
+
+    #[test]
+    fn test_set_previous_value() {
+        let mut buf = make_global_buffer();
+        buf.init_global("counter", Value::Scalar(1.0))
+            .expect("init");
+
+        // Directly set previous
+        buf.set_previous_value("counter", 0, Value::Scalar(99.0))
+            .expect("set previous");
+
+        assert_eq!(buf.get_global_prev("counter"), Some(Value::Scalar(99.0)));
+        // Current unchanged
+        assert_eq!(buf.get_global("counter"), Some(Value::Scalar(1.0)));
     }
 }
