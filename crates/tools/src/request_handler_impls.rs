@@ -9,7 +9,7 @@
 
 use crate::ipc_types::{
     AssertionInfo, FieldInfo, FieldSampleData, FieldSampleEntry, ImpulseInfo, MemberInfo,
-    MemberValueData, MemberValueEntry, SignalHistoryData, SignalHistoryEntry, SignalInfo,
+    MemberValueData, MemberValueEntry, SignalHistoryData, SignalHistoryEntry, SignalInfo, TreeNode,
 };
 use crate::world_api::{WorldRequest, WorldResponse};
 use continuum_cdsl::ast::{Domain, RoleData, RoleId};
@@ -65,6 +65,141 @@ impl RequestHandler for WorldGetHandler {
                 ok: false,
                 payload: None,
                 error: Some(format!("Failed to serialize world metadata: {}", e)),
+            },
+        }
+    }
+}
+
+pub(crate) struct WorldTreeHandler;
+
+impl RequestHandler for WorldTreeHandler {
+    fn kind(&self) -> &'static str {
+        "world.tree"
+    }
+
+    fn handle(&self, req: &WorldRequest, state: &ServerState) -> WorldResponse {
+        let world = &state.compiled.world;
+
+        // Build a map: entity_id -> Vec<tree nodes for its member nodes>
+        let mut entity_members: indexmap::IndexMap<String, Vec<TreeNode>> =
+            indexmap::IndexMap::new();
+        // Collect global nodes (entity: None) grouped by namespace prefix
+        let mut global_namespaces: indexmap::IndexMap<String, Vec<TreeNode>> =
+            indexmap::IndexMap::new();
+
+        for (path, node) in &world.nodes {
+            let path_str = path.to_string();
+            let role_id = node.role_id();
+            let kind = match role_id {
+                RoleId::Signal => "signal",
+                RoleId::Field => "field",
+                RoleId::Operator => "operator",
+                RoleId::Impulse => "impulse",
+                RoleId::Fracture => "fracture",
+                RoleId::Chronicle => "chronicle",
+            };
+
+            let leaf = TreeNode {
+                id: path_str.clone(),
+                label: path_str
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&path_str)
+                    .to_string(),
+                kind: kind.to_string(),
+                children: Vec::new(),
+                stratum: node.stratum.as_ref().map(|s| s.to_string()),
+                value_type: node.output.as_ref().map(|t| t.to_string()),
+            };
+
+            if let Some(eid) = &node.entity {
+                entity_members
+                    .entry(eid.to_string())
+                    .or_default()
+                    .push(leaf);
+            } else {
+                // Global node — group by first dotted segment
+                let ns = path_str
+                    .split('.')
+                    .next()
+                    .unwrap_or(&path_str)
+                    .to_string();
+                // If there's only one segment, use "" as namespace (root-level)
+                let ns_key = if path_str.contains('.') {
+                    ns
+                } else {
+                    String::new()
+                };
+                global_namespaces.entry(ns_key).or_default().push(leaf);
+            }
+        }
+
+        // Build entity tree nodes (flat — entities have members as children)
+        let mut entity_nodes: Vec<TreeNode> = Vec::new();
+        for (path, entity) in &world.entities {
+            let path_str = path.to_string();
+            let members = entity_members
+                .swap_remove(&entity.id.to_string())
+                .unwrap_or_default();
+
+            entity_nodes.push(TreeNode {
+                id: path_str.clone(),
+                label: path_str
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&path_str)
+                    .to_string(),
+                kind: "entity".to_string(),
+                children: members,
+                stratum: None,
+                value_type: None,
+            });
+        }
+
+        // Build global namespace nodes
+        let mut global_nodes: Vec<TreeNode> = Vec::new();
+        for (ns, leaves) in &global_namespaces {
+            if ns.is_empty() {
+                // Root-level globals — add directly
+                global_nodes.extend(leaves.clone());
+            } else {
+                // Namespace group
+                global_nodes.push(TreeNode {
+                    id: ns.clone(),
+                    label: ns.clone(),
+                    kind: "namespace".to_string(),
+                    children: leaves.clone(),
+                    stratum: None,
+                    value_type: None,
+                });
+            }
+        }
+
+        // Root tree: entities first, then global namespaces
+        let mut root_children = entity_nodes;
+        root_children.extend(global_nodes);
+
+        let root = TreeNode {
+            id: world.metadata.path.to_string(),
+            label: world.metadata.path.to_string(),
+            kind: "world".to_string(),
+            children: root_children,
+            stratum: None,
+            value_type: None,
+        };
+
+        match serde_json::to_value(root) {
+            Ok(payload) => WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(e) => WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Serialization error: {}", e)),
             },
         }
     }

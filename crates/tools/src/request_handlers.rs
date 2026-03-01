@@ -146,6 +146,7 @@ impl RequestRouter {
 
         // Register all handlers
         router.register(Box::new(WorldGetHandler));
+        router.register(Box::new(WorldTreeHandler));
         router.register(Box::new(RunStepHandler));
         router.register(Box::new(RunHandler));
         router.register(Box::new(StopHandler));

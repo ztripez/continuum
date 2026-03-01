@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { useWebSocket } from './hooks/useWebSocket';
 import { Header } from './components/Header';
 import { TabPanel } from './components/TabPanel';
+import type { TabId } from './components/TabPanel';
 import { DetailPanel } from './components/DetailPanel';
 import { LogPanel } from './components/LogPanel';
 import { AssertionPanel } from './components/AssertionPanel';
@@ -10,7 +11,7 @@ import type { TickEvent, AssertionFailure } from './types/ipc';
 
 export function App() {
   const ws = useWebSocket(`ws://${location.host}/ws`);
-  const [currentTab, setCurrentTab] = useState<'signals' | 'fields' | 'entities' | 'chronicles' | 'impulses'>('signals');
+  const [currentTab, setCurrentTab] = useState<TabId>('tree');
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [tickInfo, setTickInfo] = useState<TickEvent | null>(null);
   const [assertionCount, setAssertionCount] = useState(0);

@@ -189,3 +189,15 @@ export interface SignalHistoryData {
 
 // Topology type for chart routing
 export type FieldTopology = 'point_cloud' | 'grid2d' | 'sphere_surface';
+
+// Tree node for entity-first navigation
+export type TreeNodeKind = 'world' | 'entity' | 'signal' | 'field' | 'operator' | 'fracture' | 'chronicle' | 'impulse' | 'namespace';
+
+export interface TreeNode {
+  id: string;
+  label: string;
+  kind: TreeNodeKind;
+  children: TreeNode[];
+  stratum?: string;
+  value_type?: string;
+}

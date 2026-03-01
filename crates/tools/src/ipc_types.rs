@@ -155,3 +155,26 @@ pub struct SignalHistoryData {
     /// History entries, ordered oldest to newest.
     pub entries: Vec<SignalHistoryEntry>,
 }
+
+/// A node in the world tree, sent to inspector clients for tree-based navigation.
+///
+/// Represents entities, signals, fields, operators, fractures, chronicles,
+/// and synthetic namespace groups in a recursive hierarchy.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TreeNode {
+    /// Unique identifier (entity path, node path, or synthetic namespace key).
+    pub id: String,
+    /// Display label (last path segment or entity name).
+    pub label: String,
+    /// Node kind: `"world"`, `"entity"`, `"signal"`, `"field"`,
+    /// `"operator"`, `"fracture"`, `"chronicle"`, `"impulse"`, `"namespace"`.
+    pub kind: String,
+    /// Child nodes (empty for leaf nodes).
+    pub children: Vec<TreeNode>,
+    /// Stratum assignment, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stratum: Option<String>,
+    /// Output type description (e.g. `"Scalar<K>"`), if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_type: Option<String>,
+}

@@ -1,40 +1,33 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { SignalInfo, FieldInfo, EntityInfo, ChronicleEvent } from '../types/ipc';
+import type { SignalInfo, FieldInfo, EntityInfo, ChronicleEvent, TreeNode } from '../types/ipc';
+import { TreeView } from './TreeView';
+
+export type TabId = 'tree' | 'chronicles' | 'impulses';
 
 interface TabPanelProps {
-  currentTab: 'signals' | 'fields' | 'entities' | 'chronicles' | 'impulses';
-  onTabChange: (tab: 'signals' | 'fields' | 'entities' | 'chronicles' | 'impulses') => void;
+  currentTab: TabId;
+  onTabChange: (tab: TabId) => void;
   onSelectItem: (item: any) => void;
   onEmitImpulse: () => void;
   ws: any;
 }
 
 export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse, ws }: TabPanelProps) {
-  const [signals, setSignals] = useState<string[]>([]);
-  const [fields, setFields] = useState<string[]>([]);
-  const [entities, setEntities] = useState<string[]>([]);
+  const [tree, setTree] = useState<TreeNode | null>(null);
   const [chronicles, setChronicles] = useState<ChronicleEvent[]>([]);
   const [impulses, setImpulses] = useState<any[]>([]);
 
   useEffect(() => {
     if (ws.status !== 'connected') return;
 
-    // Load lists
-    ws.sendRequest('signal.list').then((data: any) => {
-      // Backend returns array directly, not wrapped in {signals: [...]}
-      setSignals(Array.isArray(data) ? data.map((s: any) => s.id) : []);
+    // Load world tree
+    ws.sendRequest('world.tree').then((data: TreeNode) => {
+      if (data && data.kind) {
+        setTree(data);
+      }
     }).catch(console.error);
 
-    ws.sendRequest('field.list').then((data: any) => {
-      // Backend returns array directly, not wrapped in {fields: [...]}
-      setFields(Array.isArray(data) ? data.map((f: any) => f.id) : []);
-    }).catch(console.error);
-
-    ws.sendRequest('entity.list').then((data: any) => {
-      // Backend returns array of strings directly
-      setEntities(Array.isArray(data) ? data.map((e: any) => typeof e === 'string' ? e : e.id) : []);
-    }).catch(console.error);
-
+    // Load impulses
     ws.sendRequest('impulse.list').then((data: any) => {
       setImpulses(data || []);
     }).catch(console.error);
@@ -52,39 +45,46 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse,
     return unsubscribe;
   }, [ws.status]);
 
-  const handleSelectSignal = (id: string) => {
-    ws.sendRequest('signal.describe', { signal_id: id }).then((data: SignalInfo) => {
-      onSelectItem({ type: 'signal', data });
-    }).catch(console.error);
-  };
-
-  const handleSelectField = (id: string) => {
-    ws.sendRequest('field.describe', { field_id: id }).then((data: FieldInfo) => {
-      onSelectItem({ type: 'field', data });
-    }).catch(console.error);
-  };
-
-  const handleSelectEntity = (id: string) => {
-    ws.sendRequest('entity.describe', { entity_id: id }).then((data: EntityInfo) => {
-      onSelectItem({ type: 'entity', data });
-    }).catch(console.error);
+  /** Map a tree leaf click to the detail panel selection format. */
+  const handleTreeSelect = (node: TreeNode) => {
+    const kind = node.kind;
+    if (kind === 'signal') {
+      ws.sendRequest('signal.describe', { signal_id: node.id }).then((data: SignalInfo) => {
+        onSelectItem({ type: 'signal', data });
+      }).catch(console.error);
+    } else if (kind === 'field') {
+      ws.sendRequest('field.describe', { field_id: node.id }).then((data: FieldInfo) => {
+        onSelectItem({ type: 'field', data });
+      }).catch(console.error);
+    } else if (kind === 'entity') {
+      ws.sendRequest('entity.describe', { entity_id: node.id }).then((data: EntityInfo) => {
+        onSelectItem({ type: 'entity', data });
+      }).catch(console.error);
+    } else if (kind === 'operator' || kind === 'fracture' || kind === 'chronicle' || kind === 'impulse') {
+      // For roles without a dedicated describe handler, show basic info
+      onSelectItem({
+        type: kind,
+        data: { id: node.id, value_type: node.value_type, stratum: node.stratum },
+      });
+    }
   };
 
   const handleSelectChronicle = (chronicle: ChronicleEvent) => {
     onSelectItem({ type: 'chronicle', data: chronicle });
   };
 
+  // Count tree leaves for badge
+  const countLeaves = (n: TreeNode | null): number => {
+    if (!n) return 0;
+    if (n.children.length === 0) return 1;
+    return n.children.reduce((sum, c) => sum + countLeaves(c), 0);
+  };
+
   return (
     <div class="tab-panel">
       <div class="tabs">
-        <button class={currentTab === 'signals' ? 'active' : ''} onClick={() => onTabChange('signals')}>
-          Signals ({signals.length})
-        </button>
-        <button class={currentTab === 'fields' ? 'active' : ''} onClick={() => onTabChange('fields')}>
-          Fields ({fields.length})
-        </button>
-        <button class={currentTab === 'entities' ? 'active' : ''} onClick={() => onTabChange('entities')}>
-          Entities ({entities.length})
+        <button class={currentTab === 'tree' ? 'active' : ''} onClick={() => onTabChange('tree')}>
+          Tree ({countLeaves(tree)})
         </button>
         <button class={currentTab === 'chronicles' ? 'active' : ''} onClick={() => onTabChange('chronicles')}>
           Chronicles ({chronicles.length})
@@ -94,32 +94,8 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse,
         </button>
       </div>
       <div class="tab-content">
-        {currentTab === 'signals' && (
-          <div class="item-list">
-            {signals.map(id => (
-              <div key={id} class="item" onClick={() => handleSelectSignal(id)}>
-                {id}
-              </div>
-            ))}
-          </div>
-        )}
-        {currentTab === 'fields' && (
-          <div class="item-list">
-            {fields.map(id => (
-              <div key={id} class="item" onClick={() => handleSelectField(id)}>
-                {id}
-              </div>
-            ))}
-          </div>
-        )}
-        {currentTab === 'entities' && (
-          <div class="item-list">
-            {entities.map(id => (
-              <div key={id} class="item" onClick={() => handleSelectEntity(id)}>
-                {id}
-              </div>
-            ))}
-          </div>
+        {currentTab === 'tree' && (
+          <TreeView tree={tree} onSelect={handleTreeSelect} />
         )}
         {currentTab === 'chronicles' && (
           <div class="item-list">
@@ -130,7 +106,13 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse,
                 <div key={idx} class="item chronicle-item" onClick={() => handleSelectChronicle(chron)}>
                   <div class="chronicle-name">{chron.name}</div>
                   <div class="chronicle-meta">
-                    Tick {chron.tick} • Era: {chron.era} • {chron.sim_time.toFixed(2)}s
+                    Tick {chron.tick} &bull; Era: {chron.era} &bull; {chron.sim_time.toFixed(2)}s
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
         {currentTab === 'impulses' && (
           <div class="item-list">
             <button class="primary emit-btn" onClick={onEmitImpulse}>
@@ -141,13 +123,6 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse,
                 {imp.path}
               </div>
             ))}
-          </div>
-        )}
-      </div>
-
-                </div>
-              ))
-            )}
           </div>
         )}
       </div>
