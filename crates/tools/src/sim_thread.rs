@@ -30,10 +30,13 @@
 //! Dropping all `SimProxy` clones (and thus all senders) also causes shutdown
 //! via channel disconnection.
 
-use crate::sim_proxy::{ControlCommand, RestoreResult, SimCommand, SimProxy, SimStatus};
+use crate::sim_proxy::{
+    ControlCommand, FieldSnapshot, RestoreResult, SimCommand, SimProxy, SimStatus,
+};
 use crate::world_api::WorldEvent;
 use continuum_runtime::Runtime;
 use crossbeam_channel as cbc;
+use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -78,11 +81,20 @@ impl SimThread {
         let (control_tx, control_rx) = cbc::bounded(CONTROL_CHANNEL_CAP);
         let (cmd_tx, cmd_rx) = cbc::bounded(COMMAND_CHANNEL_CAP);
 
-        let proxy = SimProxy::new(control_tx, cmd_tx);
+        // Shared field snapshot — written by sim thread after each tick,
+        // read by IPC handlers for field.samples requests. Using Arc<RwLock>
+        // avoids channel overhead for potentially large field data.
+        let field_snapshot: Arc<RwLock<FieldSnapshot>> =
+            Arc::new(RwLock::new(FieldSnapshot::default()));
+        let field_snapshot_writer = field_snapshot.clone();
+
+        let proxy = SimProxy::new(control_tx, cmd_tx, field_snapshot);
 
         let handle = thread::Builder::new()
             .name("sim-thread".to_string())
-            .spawn(move || sim_thread_main(runtime, control_rx, cmd_rx, event_tx))
+            .spawn(move || {
+                sim_thread_main(runtime, control_rx, cmd_rx, event_tx, field_snapshot_writer)
+            })
             .expect("failed to spawn simulation thread");
 
         Self {
@@ -142,6 +154,7 @@ fn sim_thread_main(
     control_rx: cbc::Receiver<ControlCommand>,
     cmd_rx: cbc::Receiver<SimCommand>,
     event_tx: Option<broadcast::Sender<WorldEvent>>,
+    field_snapshot: Arc<RwLock<FieldSnapshot>>,
 ) -> Runtime {
     info!("Simulation thread started");
 
@@ -172,12 +185,13 @@ fn sim_thread_main(
                 }
 
                 // Drain all pending commands before ticking
-                drain_commands(&cmd_rx, &mut runtime, &event_tx);
+                drain_commands(&cmd_rx, &mut runtime, &event_tx, &field_snapshot);
 
                 // Execute tick
                 match runtime.execute_tick() {
                     Ok(tick_ctx) => {
                         trace!(tick = runtime.tick(), "Tick executed");
+                        drain_fields_to_snapshot(&mut runtime, &field_snapshot);
                         emit_tick_event(&event_tx, &tick_ctx, &runtime, "running");
                     }
                     Err(e) => {
@@ -234,7 +248,7 @@ fn sim_thread_main(
                     }
                     recv(cmd_rx) -> msg => {
                         match msg {
-                            Ok(cmd) => handle_sim_cmd(cmd, &mut runtime, &event_tx),
+                            Ok(cmd) => handle_sim_cmd(cmd, &mut runtime, &event_tx, &field_snapshot),
                             Err(cbc::RecvError) => {
                                 info!("Command channel disconnected, shutting down");
                                 break;
@@ -330,9 +344,10 @@ fn drain_commands(
     cmd_rx: &cbc::Receiver<SimCommand>,
     runtime: &mut Runtime,
     event_tx: &Option<broadcast::Sender<WorldEvent>>,
+    field_snapshot: &Arc<RwLock<FieldSnapshot>>,
 ) {
     while let Ok(cmd) = cmd_rx.try_recv() {
-        handle_sim_cmd(cmd, runtime, event_tx);
+        handle_sim_cmd(cmd, runtime, event_tx, field_snapshot);
     }
 }
 
@@ -342,6 +357,7 @@ fn handle_sim_cmd(
     cmd: SimCommand,
     runtime: &mut Runtime,
     event_tx: &Option<broadcast::Sender<WorldEvent>>,
+    field_snapshot: &Arc<RwLock<FieldSnapshot>>,
 ) {
     match cmd {
         SimCommand::GetStatus { reply } => {
@@ -365,6 +381,7 @@ fn handle_sim_cmd(
             for _ in 0..count {
                 match runtime.execute_tick() {
                     Ok(ctx) => {
+                        drain_fields_to_snapshot(runtime, field_snapshot);
                         emit_tick_event(event_tx, &ctx, runtime, "stopped");
                         last_ctx = Some(ctx);
                     }
@@ -414,6 +431,37 @@ fn handle_sim_cmd(
 }
 
 // ============================================================================
+// Field Sample Drain
+// ============================================================================
+
+/// Drain field samples from the runtime and store them in the shared snapshot.
+///
+/// Called after every successful `execute_tick()`. The snapshot is overwritten
+/// each tick — it holds only the latest sample data. This is intentional:
+/// field samples are per-tick measurements, not accumulated history.
+fn drain_fields_to_snapshot(runtime: &mut Runtime, field_snapshot: &Arc<RwLock<FieldSnapshot>>) {
+    let samples = runtime.drain_fields();
+    if samples.is_empty() {
+        return;
+    }
+
+    let snapshot = FieldSnapshot {
+        tick: runtime.tick(),
+        sim_time: runtime.sim_time(),
+        samples,
+    };
+
+    match field_snapshot.write() {
+        Ok(mut guard) => *guard = snapshot,
+        Err(poisoned) => {
+            // Recover from poisoned lock — snapshot data is non-critical
+            warn!("Field snapshot lock was poisoned, recovering");
+            *poisoned.into_inner() = snapshot;
+        }
+    }
+}
+
+// ============================================================================
 // Event Emission
 // ============================================================================
 
@@ -441,6 +489,9 @@ fn emit_tick_event(
             "warmup_complete": runtime.is_warmup_complete(),
         }),
     };
+    // Note: field_count is not included here because drain_fields() already
+    // cleared the buffer before this call. The frontend can query field.samples
+    // for actual data.
 
     // Best-effort: ignore send errors (no receivers, lagged, etc.)
     let _ = tx.send(event);

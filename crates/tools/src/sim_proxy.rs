@@ -9,11 +9,14 @@
 //! - **Control channel** (`ControlCommand`): high-priority state transitions (run/pause/stop)
 //! - **Command channel** (`SimCommand`): queries and mutations with oneshot reply channels
 
+use continuum_foundation::{FieldId, FieldSample};
 use continuum_runtime::checkpoint::Checkpoint;
 use continuum_runtime::executor::AssertionFailure;
 use continuum_runtime::{EraId, ImpulseId, SignalId, TickContext, Value};
 use crossbeam_channel as cbc;
+use indexmap::IndexMap;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 // ============================================================================
 // Control Commands (high-priority state transitions)
@@ -118,6 +121,20 @@ pub struct RestoreResult {
     pub era: EraId,
 }
 
+/// Snapshot of the latest field samples from the simulation thread.
+///
+/// Written by the sim thread after each tick, read by IPC handlers.
+/// Contains only the latest tick's samples — not accumulated history.
+#[derive(Debug, Clone, Default)]
+pub struct FieldSnapshot {
+    /// Tick at which these samples were captured.
+    pub tick: u64,
+    /// Simulation time at which these samples were captured.
+    pub sim_time: f64,
+    /// Samples per field, from the last Measure phase.
+    pub samples: IndexMap<FieldId, Vec<FieldSample>>,
+}
+
 // ============================================================================
 // SimProxy
 // ============================================================================
@@ -133,6 +150,8 @@ pub struct RestoreResult {
 pub struct SimProxy {
     control_tx: cbc::Sender<ControlCommand>,
     cmd_tx: cbc::Sender<SimCommand>,
+    /// Shared field snapshot — latest samples from the sim thread.
+    field_snapshot: Arc<RwLock<FieldSnapshot>>,
 }
 
 /// Error returned when the simulation thread has disconnected.
@@ -152,8 +171,16 @@ impl SimProxy {
     ///
     /// Typically called by `SimulationController::new()` after creating
     /// the channels and spawning the simulation thread.
-    pub fn new(control_tx: cbc::Sender<ControlCommand>, cmd_tx: cbc::Sender<SimCommand>) -> Self {
-        Self { control_tx, cmd_tx }
+    pub fn new(
+        control_tx: cbc::Sender<ControlCommand>,
+        cmd_tx: cbc::Sender<SimCommand>,
+        field_snapshot: Arc<RwLock<FieldSnapshot>>,
+    ) -> Self {
+        Self {
+            control_tx,
+            cmd_tx,
+            field_snapshot,
+        }
     }
 
     // -- Control commands (fire-and-forget, no reply) --
@@ -266,5 +293,13 @@ impl SimProxy {
             .send(SimCommand::GetAssertionFailures { reply: tx })
             .map_err(|_| SimDisconnected)?;
         rx.recv().map_err(|_| SimDisconnected)
+    }
+
+    /// Get the latest field sample snapshot.
+    ///
+    /// Returns a clone of the snapshot to avoid holding the lock across
+    /// serialization. Returns `None` if the lock is poisoned.
+    pub fn field_snapshot(&self) -> Option<FieldSnapshot> {
+        self.field_snapshot.read().ok().map(|guard| guard.clone())
     }
 }

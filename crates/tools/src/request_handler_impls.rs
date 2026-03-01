@@ -9,9 +9,34 @@
 
 use crate::ipc_types::{AssertionInfo, FieldInfo, ImpulseInfo, SignalInfo};
 use crate::world_api::{WorldRequest, WorldResponse};
-use continuum_cdsl::ast::RoleId;
+use continuum_cdsl::ast::{Domain, RoleData, RoleId};
 
 use crate::request_handlers::{ExecutionState, RequestHandler, ServerState};
+
+/// Extract topology string from a node's role data.
+///
+/// Maps the field's reconstruction hint domain to a topology classification
+/// used by the frontend for chart type selection:
+/// - `"sphere_surface"` — Spherical domain (globe projection)
+/// - `"grid2d"` — Cartesian domain (heatmap)
+/// - `"point_cloud"` — No reconstruction hint (scatter plot)
+fn extract_field_topology(node: &continuum_cdsl::ast::Node) -> Option<String> {
+    match &node.role {
+        RoleData::Field {
+            reconstruction: Some(hint),
+        } => {
+            let topology = match &hint.domain {
+                Domain::Spherical { .. } => "sphere_surface",
+                Domain::Cartesian => "grid2d",
+            };
+            Some(topology.to_string())
+        }
+        RoleData::Field {
+            reconstruction: None,
+        } => Some("point_cloud".to_string()),
+        _ => None,
+    }
+}
 
 // ============================================================================
 // World / Status Handlers
@@ -548,7 +573,7 @@ impl RequestHandler for FieldListHandler {
                 title: node.title.clone(),
                 symbol: None,
                 doc: node.doc.clone(),
-                topology: None,
+                topology: extract_field_topology(node),
                 value_type: node.output.as_ref().map(|t| t.to_string()),
                 unit: None,
                 range: None,
@@ -610,7 +635,7 @@ impl RequestHandler for FieldDescribeHandler {
             title: node.title.clone(),
             symbol: None,
             doc: node.doc.clone(),
-            topology: None,
+            topology: extract_field_topology(node),
             value_type: node.output.as_ref().map(|t| t.to_string()),
             unit: None,
             range: None,
